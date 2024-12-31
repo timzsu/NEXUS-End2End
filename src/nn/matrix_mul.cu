@@ -1,4 +1,8 @@
 #include <algorithm>
+#include <cstddef>
+#include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
+#include <driver_types.h>
 #include <vector>
 
 #include "matrix_mul.cuh"
@@ -275,14 +279,6 @@ void MMEvaluator::matrix_mul(vector<vector<double>> &x, vector<vector<double>> &
 }
 
 // TODO: move to device side
-inline vector<double> mul_vec(vector<double>& x, vector<double>& y) {
-  vector<double> out(x.size());
-  for (int i = 0; i < x.size(); i++) {
-    out[i] = x[i] * y[i];
-  }
-  return out;
-}
-
 inline vector<double> rotate(vector<double>& x, int steps) {
   vector<double> out(x.size());
   for (int i = 0; i < x.size(); i++) {
@@ -291,68 +287,84 @@ inline vector<double> rotate(vector<double>& x, int steps) {
   return out;
 }
 
+__global__ void kernel_pt_encoding_128x128(double* pt, double* rot, double* out) {
+  // pt.len = 32768 = 2x128x128; out.len = 256x32768
+  // i=blockIdx.x, j/x=threadIdx.x
+  constexpr size_t slot_count = 32768;
+  int rot_offset = blockIdx.x * slot_count;
+
+  for (int y=0; y<slot_count/128; y++) {
+    int xx = (threadIdx.x + y - blockIdx.x + 128) % 128;
+    int yy = ((threadIdx.x+y)*128 + xx) % (128*128);
+    assert(xx >= 0);
+    if (y < 128)
+      rot[rot_offset+xx+128*y] = pt[yy];
+    else
+      rot[rot_offset+xx+128*y] = pt[128*128 + yy];
+  }
+
+  __syncthreads();
+
+  for (int y=0; y<slot_count/128; y++) {
+    int idx = 128*y + 127- threadIdx.x;
+    if(threadIdx.x < blockIdx.x) {
+      out[(blockIdx.x+128) * slot_count + idx] = 0;
+      out[(blockIdx.x) * slot_count + idx] = rot[rot_offset+idx];
+    } else {
+      out[(blockIdx.x+128) * slot_count + idx] = rot[rot_offset+idx];
+      out[(blockIdx.x) * slot_count + idx] = 0;
+    }
+  }
+}
+
 // Assume N=2^15
 // Baby-step-giant-step
 void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<double>& pt, PhantomCiphertext &res) {
+  auto timer = Timer();
   size_t slot_count = ckks->slot_count;
-  map<int, vector<double>> cleartexts;
-  for (int i=0; i<128; i++) {
-    vector<double> rot(slot_count, 1.0);
-    for (int j=0; j<128; j++) {
-      for (int y=0; y<slot_count/128; y++) {
-        int xx = (j + y - i + 128) % 128;
-        if (y < 128)
-          rot[xx+128*y] = pt[((j+y)*128 + xx) % (128*128)];
-        else
-          rot[xx+128*y] = pt[128*128 + (((j+y)*128 + xx) % (128*128))];
-      }
-    }
-    // vector<double> maskL(slot_count, 1.0);
-    // vector<double> maskR(slot_count, 1.0);
-    // for (int y=0; y<slot_count/128; y++) {
-    //   for (int x=0; x<128; x++) {
-    //     if(x < i)
-    //       maskL[128*y + 127- x] = 0;
-    //     else
-    //       maskR[128*y + 127- x] = 0;
-    //   }
-    // }
-    // cleartexts[i] = mul_vec(rot, maskL);
-    // cleartexts[-128+i] = mul_vec(rot, maskR);
-    cleartexts[i] = rot;
-    cleartexts[-128+i] = rot;
-    for (int y=0; y<slot_count/128; y++) {
-      for (int x=0; x<128; x++) {
-        if(x < i)
-          cleartexts[i][128*y + 127- x] = 0;
-        else
-          cleartexts[-128+i][128*y + 127- x] = 0;
-      }
-    }
-  }
+  const phantom::util::cuda_stream_wrapper &stream_wrapper = *phantom::util::global_variables::default_stream;
+  const auto &stream = stream_wrapper.get_stream();
+  assert (pt.size() == slot_count);
+  assert (slot_count == 32768);
+  vector<vector<double>> cleartexts(256, vector<double>(slot_count));
+  double *d_pt, *tmp, *out_buf;
   
-  map<int, PhantomPlaintext> plaintexts;
+  cudaMalloc(&d_pt, slot_count*sizeof(double));
+  cudaMalloc(&tmp, 128*slot_count*sizeof(double));
+  cudaMalloc(&out_buf, 256*slot_count*sizeof(double));
+  cudaMemcpy(d_pt, pt.data(), slot_count*sizeof(double), cudaMemcpyHostToDevice);
+  kernel_pt_encoding_128x128<<<128, 128>>>(d_pt, tmp, out_buf);
+  for (int i=0; i<256; i++)
+    cudaMemcpy(cleartexts[i].data(), out_buf+i*slot_count, slot_count*sizeof(double), cudaMemcpyDeviceToHost);
+  cudaFreeAsync(d_pt, stream);
+  cudaFreeAsync(tmp, stream);
+  cudaFreeAsync(out_buf, stream);
+
+  timer.start();
   for (auto gs=-128; gs<128; gs+=16)
     for (int bs=0; bs<16; bs++) {
-      plaintexts[bs+gs] = PhantomPlaintext();
-      ckks->encoder.encode(rotate(cleartexts[bs+gs], -gs), ckks->scale, plaintexts[bs+gs]);
+      cleartexts[bs+gs+128] = rotate(cleartexts[bs+gs+128], -gs);
     }
-  
   vector<PhantomCiphertext> babysteps(16);
   for (int bs=0; bs<16; bs++) {
     ckks->evaluator.rotate_vector(ct, bs, *(ckks->galois_keys), babysteps[bs]);
   }
 
-  vector<PhantomCiphertext> bsSums;
-  for (auto gs=-128; gs<128; gs+=16) {
-    vector<PhantomCiphertext> tmp_vec(16);
+  PhantomCiphertext tmpct, bsSum;
+  PhantomPlaintext tmppt;
+  for (int gs=-128; gs<128; gs+=16) {
     for (int bs=0; bs<16; bs++) {
-      ckks->evaluator.multiply_plain(babysteps[bs],plaintexts[bs+gs], tmp_vec[bs]);
+      ckks->encoder.encode(cleartexts[bs+gs+128], ckks->scale, tmppt);
+      ckks->evaluator.multiply_plain(babysteps[bs], tmppt, tmpct);
+      if (bs == 0)
+        bsSum = tmpct;
+      else
+        ckks->evaluator.add_inplace(bsSum, tmpct);
     }
-    PhantomCiphertext bsSum;
-    ckks->evaluator.add_many(tmp_vec, bsSum);
-    ckks->evaluator.rotate_vector(bsSum, gs, *(ckks->galois_keys), bsSum);
-    bsSums.push_back(bsSum);
+    ckks->evaluator.rotate_vector_inplace(bsSum, gs, *(ckks->galois_keys));
+    if (gs == -128)
+      res = bsSum;
+    else
+      ckks->evaluator.add_inplace(res, bsSum);
   }
-  ckks->evaluator.add_many(bsSums, res);
 }
