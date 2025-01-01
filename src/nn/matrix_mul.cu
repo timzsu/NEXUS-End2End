@@ -278,6 +278,8 @@ void MMEvaluator::matrix_mul(vector<vector<double>> &x, vector<vector<double>> &
   cout << "Result calculation time: " << timer.duration<milliseconds>() << " milliseconds" << endl;
 }
 
+constexpr size_t slot_count = 32768;
+
 // TODO: move to device side
 inline vector<double> rotate(vector<double>& x, int steps) {
   vector<double> out(x.size());
@@ -318,14 +320,31 @@ __global__ void kernel_pt_encoding_128x128(double* pt, double* rot, double* out)
 }
 
 // Assume N=2^15
-// Baby-step-giant-step
+// Baby-step-giant-step algorithm to compute ct-pt matmul. 
+// Input: ct1 (128x128), pt1 (128x128), ct2 (128x128), pt2 (128x128) packed as ct = ct1 | ct2, pt = pt1 | pt2
+// Output: ct1@pt1 | ct2@pt2
+/*
+  np.random.seed(1104)
+  ct1 = np.random.randn(128, 128)
+  pt1 = np.random.randn(128, 128)
+  ct2 = np.random.randn(128, 128)
+  pt2 = np.random.randn(128, 128)
+  
+  ct_full = np.ones((SLOTS,))
+  ct_full[:SLOTS//2] = ct1.flatten()
+  ct_full[SLOTS//2:] = ct2.flatten()
+  pt_full = np.ones((SLOTS,))
+  pt_full[:SLOTS//2] = pt1.flatten()
+  pt_full[SLOTS//2:] = pt2.flatten()
+
+  res = multiply_ct128x128_pt128x128(ct_full, pt_full)
+  assert np.isclose(res[:SLOTS//2], (ct1 @ pt1).flatten()).all()
+  assert np.isclose(res[SLOTS//2:], (ct2 @ pt2).flatten()).all()
+*/
 void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<double>& pt, PhantomCiphertext &res) {
-  auto timer = Timer();
-  size_t slot_count = ckks->slot_count;
   const phantom::util::cuda_stream_wrapper &stream_wrapper = *phantom::util::global_variables::default_stream;
   const auto &stream = stream_wrapper.get_stream();
   assert (pt.size() == slot_count);
-  assert (slot_count == 32768);
   vector<vector<double>> cleartexts(256, vector<double>(slot_count));
   double *d_pt, *tmp, *out_buf;
   
@@ -340,7 +359,6 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<d
   cudaFreeAsync(tmp, stream);
   cudaFreeAsync(out_buf, stream);
 
-  timer.start();
   for (auto gs=-128; gs<128; gs+=16)
     for (int bs=0; bs<16; bs++) {
       cleartexts[bs+gs+128] = rotate(cleartexts[bs+gs+128], -gs);
@@ -366,5 +384,83 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<d
       res = bsSum;
     else
       ckks->evaluator.add_inplace(res, bsSum);
+  }
+}
+
+/*
+  np.random.seed(1104)
+  ct = np.random.randn(128, 768)
+  pt = np.random.randn(768, 128)
+  
+  cts = np.split(ct, 6, axis=1)
+  cts = [
+      (np.concat((cts[0].flatten(), cts[1].flatten()))), 
+      (np.concat((cts[2].flatten(), cts[3].flatten()))), 
+      (np.concat((cts[4].flatten(), cts[5].flatten()))), 
+  ]
+  pts = np.split(pt, 6, axis=0)
+  pts = [
+      (np.concat((pts[0].flatten(), pts[1].flatten()))), 
+      (np.concat((pts[2].flatten(), pts[3].flatten()))), 
+      (np.concat((pts[4].flatten(), pts[5].flatten()))), 
+  ]
+
+  res = multiply_ct128x768_pt768x128_type2(cts, pts)
+  assert np.isclose(res[:SLOTS//2], (ct @ pt).flatten()).all()
+  assert np.isclose(res[SLOTS//2:], (ct @ pt).flatten()).all()
+*/
+void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, vector<double>& pt, PhantomCiphertext &res) {
+
+}
+
+void MMEvaluator::matrix_mul_ct128x64_ct128x64_trans(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
+  vector<PhantomCiphertext> babyStepsL(8), babyStepsR(8);
+  for (int gs=0; gs<16; gs++) {
+    PhantomCiphertext ct1Rot, sumBs;
+    ckks->evaluator.rotate_vector(ct1, -1024*gs, *(ckks->galois_keys), ct1Rot);
+    for (int bs=0; bs<8; bs++) {
+      int i = bs + 8*gs;
+      vector<double> maskL(slot_count, 0.0);
+      vector<double> maskR(slot_count, 0.0);
+      for (int k=0; k<2; k++) {
+        for (int y=0; y<slot_count / 128 / 2; y++) {
+          for (int x=0; x<128; x++) {
+            if (y < i)
+              maskR[128*(127 - y) + 128*128*k + x] = 1;
+            else
+              maskL[128*(127 - y) + 128*128*k + x] = 1;
+          }
+        }
+      }
+      PhantomCiphertext ct2RotL, ct2RotR, ct2Rot, sumi, tmp;
+      PhantomPlaintext pt;
+      
+      maskL = rotate(maskL,-1024*gs);
+      maskR = rotate(maskR,-1024*gs);
+
+      ckks->encoder.encode(maskL, ckks->scale, pt);
+      ckks->evaluator.multiply_plain(babyStepsL[bs], pt, ct2RotL);
+      ckks->encoder.encode(maskR, ckks->scale, pt);
+      ckks->evaluator.multiply_plain(babyStepsR[bs], pt, ct2RotR);
+      ckks->evaluator.add(ct2RotL, ct2RotR, ct2Rot);
+      ckks->evaluator.multiply(ct1Rot, ct2Rot, sumi);
+      for (int j=1; j<64; j<<=1) {
+        ckks->evaluator.rotate_vector(sumi, j, *(ckks->galois_keys), tmp);
+        ckks->evaluator.add_inplace(sumi, tmp);
+      }
+
+      // TODO: attention mask
+
+      if (bs == 0)
+        sumBs = sumi;
+      else
+        ckks->evaluator.add_inplace(sumBs, sumi);
+    }
+    if (gs == 0)
+      res = sumBs;
+    else {
+      ckks->evaluator.rotate_vector_inplace(sumBs, (1024 - 8)*gs, *(ckks->galois_keys));
+      ckks->evaluator.add_inplace(res, sumBs);
+    }
   }
 }
