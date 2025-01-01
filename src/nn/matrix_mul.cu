@@ -372,7 +372,7 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<d
   PhantomPlaintext tmppt;
   for (int gs=-128; gs<128; gs+=16) {
     for (int bs=0; bs<16; bs++) {
-      ckks->encoder.encode(cleartexts[bs+gs+128], ckks->scale, tmppt);
+      ckks->encoder.encode(cleartexts[bs+gs+128], babysteps[bs].chain_index(), ckks->scale, tmppt);
       ckks->evaluator.multiply_plain(babysteps[bs], tmppt, tmpct);
       if (bs == 0)
         bsSum = tmpct;
@@ -385,6 +385,7 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<d
     else
       ckks->evaluator.add_inplace(res, bsSum);
   }
+  ckks->evaluator.rescale_to_next_inplace(res);
 }
 
 /*
@@ -413,8 +414,12 @@ void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, 
 
 }
 
-void MMEvaluator::matrix_mul_ct128x64_ct128x64_trans(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
+void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
   vector<PhantomCiphertext> babyStepsL(8), babyStepsR(8);
+  for (int bs=0; bs<8; bs++) {
+    ckks->evaluator.rotate_vector(ct2, 128*bs, *(ckks->galois_keys), babyStepsL[bs]);
+    ckks->evaluator.rotate_vector(ct2, -128*(128-bs), *(ckks->galois_keys), babyStepsR[bs]);
+  }
   for (int gs=0; gs<16; gs++) {
     PhantomCiphertext ct1Rot, sumBs;
     ckks->evaluator.rotate_vector(ct1, -1024*gs, *(ckks->galois_keys), ct1Rot);
@@ -438,23 +443,38 @@ void MMEvaluator::matrix_mul_ct128x64_ct128x64_trans(PhantomCiphertext& ct1, Pha
       maskL = rotate(maskL,-1024*gs);
       maskR = rotate(maskR,-1024*gs);
 
-      ckks->encoder.encode(maskL, ckks->scale, pt);
+      ckks->encoder.encode(maskL, babyStepsL[bs].chain_index(), ckks->scale, pt);
       ckks->evaluator.multiply_plain(babyStepsL[bs], pt, ct2RotL);
-      ckks->encoder.encode(maskR, ckks->scale, pt);
+      ckks->encoder.encode(maskR, babyStepsR[bs].chain_index(), ckks->scale, pt);
       ckks->evaluator.multiply_plain(babyStepsR[bs], pt, ct2RotR);
       ckks->evaluator.add(ct2RotL, ct2RotR, ct2Rot);
-      ckks->evaluator.multiply(ct1Rot, ct2Rot, sumi);
-      for (int j=1; j<64; j<<=1) {
+      ckks->evaluator.rescale_to_next_inplace(ct2Rot);
+      ckks->evaluator.multiply_reduced_error(ct1Rot, ct2Rot, *(ckks->relin_keys), sumi);
+      ckks->evaluator.rescale_to_next_inplace(sumi);
+      for (int j=1; j<64; j*=2) {
         ckks->evaluator.rotate_vector(sumi, j, *(ckks->galois_keys), tmp);
         ckks->evaluator.add_inplace(sumi, tmp);
       }
 
       // TODO: attention mask
+      vector<double> mask(slot_count, 0.0);
+      for (int k=0; k<2; k++) {
+        for (int j=0; j<128; j++) {
+          // mask[128*128*k + 128*jj] = att_mask[(i + jj) % 128];
+          mask[128*128*k + 128*j] = 1;
+        }
+      }
+      mask = rotate(mask,-1024*gs);
+      ckks->encoder.encode(mask, sumi.chain_index(), ckks->scale, pt);
+      ckks->evaluator.multiply_plain_inplace(sumi, pt);
+      ckks->evaluator.rescale_to_next_inplace(sumi);
 
       if (bs == 0)
         sumBs = sumi;
-      else
+      else {
+        ckks->evaluator.rotate_vector_inplace(sumi, -bs, *(ckks->galois_keys));
         ckks->evaluator.add_inplace(sumBs, sumi);
+      }
     }
     if (gs == 0)
       res = sumBs;
