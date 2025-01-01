@@ -5,6 +5,7 @@
 #include <driver_types.h>
 #include <vector>
 
+#include "ciphertext.h"
 #include "matrix_mul.cuh"
 #include "utils.cuh"
 
@@ -481,6 +482,108 @@ void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1,
     else {
       ckks->evaluator.rotate_vector_inplace(sumBs, (1024 - 8)*gs, *(ckks->galois_keys));
       ckks->evaluator.add_inplace(res, sumBs);
+    }
+  }
+}
+
+void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
+  vector<PhantomCiphertext> rotBS(8);
+  for (int bs=0; bs<8; bs++) {
+    ckks->evaluator.rotate_vector(ct2, 128*bs, *(ckks->galois_keys), rotBS[bs]);
+  }
+
+  PhantomCiphertext diag;
+  for (int gs=0; gs<16; gs++) {
+    PhantomCiphertext diagBS;
+    for (int bs=0; bs<8; bs++) {
+      int i = bs + 8*gs;
+      vector<double> mask(slot_count, 0.0);
+      for (int y=0; y<slot_count / 128; y++) {
+        mask[i+128*y] = 1;
+      }
+      mask = rotate(mask,-128*8*gs);
+
+      PhantomCiphertext rot;
+      PhantomPlaintext pt;
+
+      ckks->encoder.encode(mask, rotBS[bs].chain_index(), ckks->scale, pt);
+      ckks->evaluator.multiply_plain(rotBS[bs], pt, rot);
+      ckks->evaluator.rescale_to_next_inplace(rot);
+
+      if (bs == 0)
+        diagBS = rot;
+      else {
+        ckks->evaluator.add_inplace(diagBS, rot);
+      }
+    }
+    if (gs == 0)
+      diag = diagBS;
+    else {
+      ckks->evaluator.rotate_vector_inplace(diagBS, 128*8*gs, *(ckks->galois_keys));
+      ckks->evaluator.add_inplace(diag, diagBS);
+    }
+  }
+
+  vector<PhantomCiphertext> diagBS(8);
+  for (int bs=0; bs<8; bs++) {
+    ckks->evaluator.rotate_vector(diag, 128*bs, *(ckks->galois_keys), diagBS[bs]);
+  }
+
+  for (int gs=0; gs<16; gs++) {
+    PhantomCiphertext sumbs;
+    for (int bs=0; bs<8; bs++) {
+      int i = bs + 8*gs;
+      vector<double> maskL(slot_count, 1.0);
+      vector<double> maskR(slot_count, 1.0);
+      for (int y = 0; y < slot_count / 128; ++y) {
+        for (int x = 0; x < 128; ++x) {
+            int idx = 127 - x;
+            if (x < i) {
+                maskL[128 * y + idx] = 0;
+            } else {
+                maskR[128 * y + idx] = 0;
+            }
+            if (y < 128 && idx >= 64) {
+                maskL[128 * y + idx] = 0;
+                maskR[128 * y + idx] = 0;
+            } else if (y >= 128 && idx < 64) {
+                maskL[128 * y + idx] = 0;
+                maskR[128 * y + idx] = 0;
+            }
+        }
+      }
+      maskL = rotate(maskL,-128*8*gs);
+      maskR = rotate(maskR,-128*8*gs);
+
+      PhantomCiphertext rotL, rotR, diagL, diagR, vec;
+      PhantomPlaintext pt;
+
+      ckks->evaluator.rotate_vector(ct1, bs-127*8*gs, *(ckks->galois_keys), rotL);
+      ckks->evaluator.rotate_vector(ct1, -128+bs-127*8*gs, *(ckks->galois_keys), rotR);
+
+      ckks->encoder.encode(maskL, diagBS[bs].chain_index(), ckks->scale, pt);
+      ckks->evaluator.multiply_plain(diagBS[bs], pt, diagL);
+      ckks->evaluator.rescale_to_next_inplace(diagL);
+      ckks->encoder.encode(maskR, diagBS[bs].chain_index(), ckks->scale, pt);
+      ckks->evaluator.multiply_plain(diagBS[bs], pt, diagR);
+      ckks->evaluator.rescale_to_next_inplace(diagR);
+
+      ckks->evaluator.multiply_inplace_reduced_error(diagL, rotL, *(ckks->relin_keys));
+      ckks->evaluator.multiply_inplace_reduced_error(diagR, rotR, *(ckks->relin_keys));
+      ckks->evaluator.add(diagL, diagR, vec);
+      ckks->evaluator.rescale_to_next_inplace(vec);
+
+      if (bs == 0)
+        sumbs = vec;
+      else {
+        ckks->evaluator.add_inplace(sumbs, vec);
+      }
+    }
+    if (gs == 0)
+      res = sumbs;
+    else {
+      ckks->evaluator.rotate_vector_inplace(sumbs, 128*8*gs, *(ckks->galois_keys));
+      ckks->evaluator.add_inplace(res, sumbs);
     }
   }
 }

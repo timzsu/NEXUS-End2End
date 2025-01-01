@@ -101,10 +101,14 @@ TEST_CASE("Matrix Multiplication") {
     SECTION("ct 128x64 ct.t 128x64 && ct 128x128 ct 128x64") {
         Matrix matrix1 = Matrix::Random(128, 128);
         Matrix matrix2 = Matrix::Random(128, 128);
+        Matrix matrix3 = Matrix::Random(128, 128);
+        Matrix placeholder = Matrix::Zero(128, 128);
         matrix1.block(0, 64, 128, 64).setZero();
         matrix2.block(0, 64, 128, 64).setZero();
+        matrix3.block(0, 64, 128, 64).setZero();
 
         Matrix matrix_intermediate = matrix1 * matrix2.transpose();
+        Matrix gt_matrix = matrix_intermediate * matrix3;
         for (int i = 0; i < matrix_intermediate.rows(); ++i) {
             Eigen::VectorXd row = matrix_intermediate.row(i);
             Eigen::VectorXd rotated_row(row.size());
@@ -114,16 +118,27 @@ TEST_CASE("Matrix Multiplication") {
 
         auto ct1 = enc(flatten_pack(matrix1, matrix1), ckks_evaluator);
         auto ct2 = enc(flatten_pack(matrix2, matrix2), ckks_evaluator);
+        auto ct3 = enc(flatten_pack(matrix3, matrix3), ckks_evaluator);
         std::vector<double> ct_matrix_intermediate = flatten_pack(matrix_intermediate, matrix_intermediate);
+        std::vector<double> ct_matrix_res = flatten_pack(gt_matrix, placeholder);
 
-        PhantomCiphertext res;
-        mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res);
-        auto mm_res = dec(res, ckks_evaluator);
+        PhantomCiphertext res1, res2;
+        mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);
+        auto mm_res1 = dec(res1, ckks_evaluator);
 
-        REQUIRE(isClose(mm_res, ct_matrix_intermediate));
+        REQUIRE(isClose(mm_res1, ct_matrix_intermediate));
 
-        BENCHMARK("matmul") {
-           mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res);
+        mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
+        auto mm_res2 = dec(res2, ckks_evaluator);
+
+        REQUIRE(isClose(mm_res2, ct_matrix_res));
+
+        BENCHMARK("matmul1") {
+           mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);
+        };
+        
+        BENCHMARK("matmul2") {
+        mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
         };
     }
 
