@@ -11,6 +11,7 @@ target_include_directories(NEXUS_NN
   $<INSTALL_INTERFACE:include/nn>
 )
 target_link_libraries(NEXUS_NN
-  PRIVATE
+  PUBLIC
   PhantomBootstrapping::PhantomBootstrapping
+  Eigen3::Eigen
 )

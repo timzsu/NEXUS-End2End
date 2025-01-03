@@ -279,8 +279,6 @@ void MMEvaluator::matrix_mul(vector<vector<double>> &x, vector<vector<double>> &
   cout << "Result calculation time: " << timer.duration<milliseconds>() << " milliseconds" << endl;
 }
 
-constexpr size_t slot_count = 32768;
-
 // TODO: move to device side
 inline vector<double> rotate(vector<double>& x, int steps) {
   vector<double> out(x.size());
@@ -324,24 +322,6 @@ __global__ void kernel_pt_encoding_128x128(double* pt, double* rot, double* out)
 // Baby-step-giant-step algorithm to compute ct-pt matmul. 
 // Input: ct1 (128x128), pt1 (128x128), ct2 (128x128), pt2 (128x128) packed as ct = ct1 | ct2, pt = pt1 | pt2
 // Output: ct1@pt1 | ct2@pt2
-/*
-  np.random.seed(1104)
-  ct1 = np.random.randn(128, 128)
-  pt1 = np.random.randn(128, 128)
-  ct2 = np.random.randn(128, 128)
-  pt2 = np.random.randn(128, 128)
-  
-  ct_full = np.ones((SLOTS,))
-  ct_full[:SLOTS//2] = ct1.flatten()
-  ct_full[SLOTS//2:] = ct2.flatten()
-  pt_full = np.ones((SLOTS,))
-  pt_full[:SLOTS//2] = pt1.flatten()
-  pt_full[SLOTS//2:] = pt2.flatten()
-
-  res = multiply_ct128x128_pt128x128(ct_full, pt_full)
-  assert np.isclose(res[:SLOTS//2], (ct1 @ pt1).flatten()).all()
-  assert np.isclose(res[SLOTS//2:], (ct2 @ pt2).flatten()).all()
-*/
 void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<double>& pt, PhantomCiphertext &res) {
   const phantom::util::cuda_stream_wrapper &stream_wrapper = *phantom::util::global_variables::default_stream;
   const auto &stream = stream_wrapper.get_stream();
@@ -387,32 +367,6 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<d
       ckks->evaluator.add_inplace(res, bsSum);
   }
   ckks->evaluator.rescale_to_next_inplace(res);
-}
-
-/*
-  np.random.seed(1104)
-  ct = np.random.randn(128, 768)
-  pt = np.random.randn(768, 128)
-  
-  cts = np.split(ct, 6, axis=1)
-  cts = [
-      (np.concat((cts[0].flatten(), cts[1].flatten()))), 
-      (np.concat((cts[2].flatten(), cts[3].flatten()))), 
-      (np.concat((cts[4].flatten(), cts[5].flatten()))), 
-  ]
-  pts = np.split(pt, 6, axis=0)
-  pts = [
-      (np.concat((pts[0].flatten(), pts[1].flatten()))), 
-      (np.concat((pts[2].flatten(), pts[3].flatten()))), 
-      (np.concat((pts[4].flatten(), pts[5].flatten()))), 
-  ]
-
-  res = multiply_ct128x768_pt768x128_type2(cts, pts)
-  assert np.isclose(res[:SLOTS//2], (ct @ pt).flatten()).all()
-  assert np.isclose(res[SLOTS//2:], (ct @ pt).flatten()).all()
-*/
-void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, vector<double>& pt, PhantomCiphertext &res) {
-
 }
 
 void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {

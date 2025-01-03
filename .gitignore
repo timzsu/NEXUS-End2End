@@ -33,3 +33,4 @@ Session.vim
 CIFAR10
 .vscode
 .clangd
+*.log
