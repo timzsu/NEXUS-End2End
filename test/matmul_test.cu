@@ -1,5 +1,6 @@
 #include "ciphertext.h"
 #include "matrix_mul.cuh"
+#include "row_pack.h"
 #include "phantom.h"
 
 #include <Eigen/Core>
@@ -19,10 +20,19 @@ size_t N = 1ULL << 16;
 double SCALE = pow(2.0, 40);
 size_t L = 8;
 
-PhantomCiphertext enc(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator) {
+inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr) {
     PhantomPlaintext pt;
-    ckks_evaluator->encoder.encode(data, SCALE, pt);
+    if (ref_ct) {
+        ckks_evaluator->encoder.encode(data, ref_ct->chain_index(), ref_ct->scale(), pt);
+    } else {
+        ckks_evaluator->encoder.encode(data, SCALE, pt);
+    }
+    return pt;
+}
+
+inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator) {
     PhantomCiphertext out;
+    auto pt = CKKSEncode(data, ckks_evaluator);
     ckks_evaluator->encryptor.encrypt(pt, out);
     return out;
 }
@@ -98,9 +108,9 @@ TEST_CASE("Matrix Multiplication") {
         Matrix matrix_B2 = Matrix::Random(128, 128);
         Matrix matrix_C1 = matrix_A1 * matrix_B1;
         Matrix matrix_C2 = matrix_A2 * matrix_B2;
-        auto ct_matrix_128x128 = enc(mme.flatten_pack(matrix_A1, matrix_A2), ckks_evaluator);
-        vector<double> pt_matrix_128x128 = mme.flatten_pack(matrix_B1, matrix_B2);
-        vector<double> ctxpt_matrix_128x128 = mme.flatten_pack(matrix_C1, matrix_C2);
+        auto ct_matrix_128x128 = CKKSEncrypt(flatten_pack(matrix_A1, matrix_A2), ckks_evaluator);
+        vector<double> pt_matrix_128x128 = flatten_pack(matrix_B1, matrix_B2);
+        vector<double> ctxpt_matrix_128x128 = flatten_pack(matrix_C1, matrix_C2);
 
         PhantomCiphertext res;
         mme.matrix_mul_ct128x128_pt128x128(ct_matrix_128x128, pt_matrix_128x128, res);
@@ -155,11 +165,11 @@ TEST_CASE("Matrix Multiplication") {
             matrix_intermediate.row(i) = rotated_row;
         }
 
-        auto ct1 = enc(mme.flatten_pack(matrix1, matrix1), ckks_evaluator);
-        auto ct2 = enc(mme.flatten_pack(matrix2, matrix2), ckks_evaluator);
-        auto ct3 = enc(mme.flatten_pack(matrix3, matrix3), ckks_evaluator);
-        vector<double> ct_matrix_intermediate = mme.flatten_pack(matrix_intermediate, matrix_intermediate);
-        vector<double> ct_matrix_res = mme.flatten_pack(gt_matrix, placeholder);
+        auto ct1 = CKKSEncrypt(flatten_pack(matrix1), ckks_evaluator);
+        auto ct2 = CKKSEncrypt(flatten_pack(matrix2), ckks_evaluator);
+        auto ct3 = CKKSEncrypt(flatten_pack(matrix3), ckks_evaluator);
+        vector<double> ct_matrix_intermediate = flatten_pack(matrix_intermediate);
+        vector<double> ct_matrix_res = flatten_pack(gt_matrix, placeholder);
 
         PhantomCiphertext res1, res2;
         mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);
@@ -182,45 +192,44 @@ TEST_CASE("Matrix Multiplication") {
     }
 
     /*
-    np.random.seed(1104)
     ct = np.random.randn(128, 768)
     pt = np.random.randn(768, 128)
-    
-    cts = np.split(ct, 6, axis=1)
-    cts = [
-        (np.concat((cts[0].flatten(), cts[1].flatten()))), 
-        (np.concat((cts[2].flatten(), cts[3].flatten()))), 
-        (np.concat((cts[4].flatten(), cts[5].flatten()))), 
-    ]
-    pts = np.split(pt, 6, axis=0)
-    pts = [
-        (np.concat((pts[0].flatten(), pts[1].flatten()))), 
-        (np.concat((pts[2].flatten(), pts[3].flatten()))), 
-        (np.concat((pts[4].flatten(), pts[5].flatten()))), 
-    ]
+    bias = np.random.randn(128)
+
+    cts = row_pack_128x768(ct)
+    pts = row_pack_768x64_type2(pt[:, :64], pt[:, 64:])
 
     res = multiply_ct128x768_pt768x128_type2(cts, pts)
     assert np.isclose(res[:SLOTS//2], (ct @ pt).flatten()).all()
     assert np.isclose(res[SLOTS//2:], (ct @ pt).flatten()).all()
+
+    res_plus_bias = add_vec(res, row_pack_64x1_type2(bias[:64], bias[64:]))
+    assert np.isclose(res_plus_bias[:SLOTS//2], (ct @ pt + bias).flatten()).all()
+    assert np.isclose(res_plus_bias[SLOTS//2:], (ct @ pt + bias).flatten()).all()
     */
     SECTION("ct 128x768 pt 768x128") {
         Matrix matrix_A = Matrix::Random(128, 768);
         Matrix matrix_B = Matrix::Random(768, 128);
+        Vector bias = Vector::Random(128);
         Matrix matrix_C = matrix_A * matrix_B;
-        vector<vector<double>> packed_A = mme.row_pack_128x768(matrix_A);
+        auto packed_A = row_pack_128x768(matrix_A);
         vector<PhantomCiphertext> cts{
-            enc(packed_A[0], ckks_evaluator), 
-            enc(packed_A[1], ckks_evaluator), 
-            enc(packed_A[2], ckks_evaluator), 
+            CKKSEncrypt(packed_A[0], ckks_evaluator), 
+            CKKSEncrypt(packed_A[1], ckks_evaluator), 
+            CKKSEncrypt(packed_A[2], ckks_evaluator), 
         };
-        vector<vector<double>> pts = mme.column_pack_768x128(matrix_B);
-        vector<double> ctxpt = mme.flatten_pack(matrix_C, matrix_C);
+        auto pts = row_pack_768x128(matrix_B);
+        auto bias_packed = row_pack_128x1(bias);
+        auto ctxpt = flatten_pack(matrix_C);
+        auto ctxpt_bias = flatten_pack(matrix_C.rowwise() + bias);
 
         PhantomCiphertext res;
         mme.matrix_mul_ct128x768_pt768x128(cts, pts, res);
-        auto mm_res = dec(res, ckks_evaluator);
+        REQUIRE(isClose(dec(res, ckks_evaluator), ctxpt));
 
-        REQUIRE(isClose(mm_res, ctxpt));
+        auto bias_pt = CKKSEncode(bias_packed, ckks_evaluator, &res);
+        ckks_evaluator->evaluator.add_plain_inplace(res, bias_pt);
+        REQUIRE(isClose(dec(res, ckks_evaluator), ctxpt_bias));
 
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x128(cts, pts, res);
@@ -228,35 +237,45 @@ TEST_CASE("Matrix Multiplication") {
     }
 
     /*
-    ct1 = np.random.randn(128, 768)
-    ct2 = np.random.randn(768, 64)
-    ct3 = np.random.randn(768, 64)
+    ct = np.random.randn(128, 768)
+    pt1 = np.random.randn(768, 64)
+    pt2 = np.random.randn(768, 64)
+    bias1 = np.random.randn(64)
+    bias2 = np.random.randn(64)
     
-    ct1_full = row_pack_128x768(ct1)
-    ct2_full = row_pack_768x64(ct2, ct3)
+    ct_packed = row_pack_128x768(ct)
+    pt_packed = row_pack_768x64(pt1, pt2)
+    bias_packed = row_pack_64x1(bias1, bias2)
 
-    gt = ct1 @ ct2
+    res = multiply_ct128x768_pt768x128(ct_packed, pt_packed)
+    assert np.isclose(res[:SLOTS//2].reshape((128, 128))[:, :64], ct @ pt1).all()
+    assert np.isclose(res[SLOTS//2:].reshape((128, 128))[:, :64], ct @ pt2).all()
 
-    res = multiply_ct128x768_pt768x128(ct1_full, ct2_full)
-    assert np.isclose(res[:SLOTS//2].reshape((128, 128))[:, :64], ct1 @ ct2).all()
-    assert np.isclose(res[SLOTS//2:].reshape((128, 128))[:, :64], ct1 @ ct3).all()
+    res = add_vec(res, bias_packed)
+    assert np.isclose(res[:SLOTS//2].reshape((128, 128))[:, :64], ct @ pt1 + bias1).all()
+    assert np.isclose(res[SLOTS//2:].reshape((128, 128))[:, :64], ct @ pt2 + bias2).all()
     */
     SECTION("ct 128x768 pt 768x64x2") {
         Matrix matrix_A = Matrix::Random(128, 768);
         Matrix matrix_B1 = Matrix::Random(768, 64);
         Matrix matrix_B2 = Matrix::Random(768, 64);
+        Vector bias1 = Vector::Random(64);
+        Vector bias2 = Vector::Random(64);
         Matrix matrix_C1 = matrix_A * matrix_B1;
         Matrix matrix_C2 = matrix_A * matrix_B2;
-        vector<vector<double>> packed_A = mme.row_pack_128x768(matrix_A);
+        vector<vector<double>> packed_A = row_pack_128x768(matrix_A);
         vector<PhantomCiphertext> cts{
-            enc(packed_A[0], ckks_evaluator), 
-            enc(packed_A[1], ckks_evaluator), 
-            enc(packed_A[2], ckks_evaluator), 
+            CKKSEncrypt(packed_A[0], ckks_evaluator), 
+            CKKSEncrypt(packed_A[1], ckks_evaluator), 
+            CKKSEncrypt(packed_A[2], ckks_evaluator), 
         };
-        vector<vector<double>> pts = mme.row_pack_768x64x2(matrix_B1, matrix_B2);
+        vector<vector<double>> pts = row_pack_768x64x2(matrix_B1, matrix_B2);
+        auto bias_packed = row_pack_64x1x2(bias1, bias2);
 
         PhantomCiphertext res;
         mme.matrix_mul_ct128x768_pt768x64x2(cts, pts, res);
+
+        {
         auto mm_res = dec(res, ckks_evaluator);
 
         Eigen::Map<Matrix> mm_res1(mm_res.data(), 128, 128);
@@ -264,6 +283,22 @@ TEST_CASE("Matrix Multiplication") {
 
         REQUIRE(matrix_C1.isApprox(mm_res1.block(0, 0, 128, 64), 1e-3));
         REQUIRE(matrix_C2.isApprox(mm_res2.block(0, 0, 128, 64), 1e-3));
+        }
+
+        auto bias_pt = CKKSEncode(bias_packed, ckks_evaluator, &res);
+        ckks_evaluator->evaluator.add_plain_inplace(res, bias_pt);
+
+        {
+        auto mm_res = dec(res, ckks_evaluator);
+
+        Eigen::Map<Matrix> mm_res1(mm_res.data(), 128, 128);
+        Eigen::Map<Matrix> mm_res2(mm_res.data() + 128*128, 128, 128);
+        
+        matrix_C1.rowwise() += bias1;
+        matrix_C2.rowwise() += bias2;
+        REQUIRE(matrix_C1.isApprox(mm_res1.block(0, 0, 128, 64), 1e-3));
+        REQUIRE(matrix_C2.isApprox(mm_res2.block(0, 0, 128, 64), 1e-3));
+        }
 
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x64x2(cts, pts, res);
@@ -271,30 +306,41 @@ TEST_CASE("Matrix Multiplication") {
     }
 
     /*
-    ct1 = np.random.randn(128, 768)
-    ct2 = np.random.randn(768, 64)
-    ct3 = np.random.randn(768, 64)
+    ct = np.random.randn(128, 768)
+    pt = np.random.randn(768, 768)
+    bias = np.random.randn(768)
     
-    ct1_full = row_pack_128x768(ct1)
-    ct2_full = row_pack_768x64(ct2, ct3)
+    ct_packed = row_pack_128x768(ct)
+    pt_packed = row_pack_768x768(pt)
+    bias_packed = row_pack_768x1(bias)
 
-    gt = ct1 @ ct2
+    gt = ct @ pt
 
-    res = multiply_ct128x768_pt768x128(ct1_full, ct2_full)
-    assert np.isclose(res[:SLOTS//2].reshape((128, 128))[:, :64], ct1 @ ct2).all()
-    assert np.isclose(res[SLOTS//2:].reshape((128, 128))[:, :64], ct1 @ ct3).all()
+    res = multiply_ct128x768_pt768x768(ct_packed, pt_packed)
+    for i in range(3):
+        assert np.isclose(res[i][:SLOTS//2].reshape((128, 128)), gt[:, 256*i: 256*i+128]).all()
+        assert np.isclose(res[i][SLOTS//2:].reshape((128, 128)), gt[:, 256*i+128: 256*i+256]).all()
+
+    res = add_vec(res, bias_packed)
+    gt = ct @ pt + bias
+    for i in range(3):
+        assert np.isclose(res[i][:SLOTS//2].reshape((128, 128)), gt[:, 256*i: 256*i+128]).all()
+        assert np.isclose(res[i][SLOTS//2:].reshape((128, 128)), gt[:, 256*i+128: 256*i+256]).all()
     */
     SECTION("ct 128x768 pt 768x768") {
         Matrix matrix_A = Matrix::Random(128, 768);
         Matrix matrix_B = Matrix::Random(768, 768);
+        Vector bias = Vector::Random(768);
         Matrix matrix_C = matrix_A * matrix_B;
-        vector<vector<double>> packed_A = mme.row_pack_128x768(matrix_A);
+        vector<vector<double>> packed_A = row_pack_128x768(matrix_A);
         vector<PhantomCiphertext> cts{
-            enc(packed_A[0], ckks_evaluator), 
-            enc(packed_A[1], ckks_evaluator), 
-            enc(packed_A[2], ckks_evaluator), 
+            CKKSEncrypt(packed_A[0], ckks_evaluator), 
+            CKKSEncrypt(packed_A[1], ckks_evaluator), 
+            CKKSEncrypt(packed_A[2], ckks_evaluator), 
         };
-        auto pts = mme.row_pack_768x768(matrix_B);
+        auto pts = row_pack_768x768(matrix_B);
+        auto bias_packed = row_pack_768x1(bias);
+
         vector<PhantomCiphertext> res;
         mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);
 
@@ -306,6 +352,18 @@ TEST_CASE("Matrix Multiplication") {
         }
 
         REQUIRE(mm_result.isApprox(matrix_C, 1e-3));
+        
+        for (int i=0; i<res.size(); i++) {
+            auto bias_pt = CKKSEncode(bias_packed[i], ckks_evaluator, &res[i]);
+            ckks_evaluator->evaluator.add_plain_inplace(res[i], bias_pt);
+        }
+        
+        for (int i=0; i<3; i++) {
+            auto mm_res = dec(res[i], ckks_evaluator);
+            mm_result.block(0, i*256, 128, 128) = Eigen::Map<Matrix>(mm_res.data(), 128, 128);
+            mm_result.block(0, i*256+128, 128, 128) = Eigen::Map<Matrix>(mm_res.data() + 128*128, 128, 128);
+        }
+        REQUIRE(mm_result.isApprox(matrix_C.rowwise() + bias, 1e-3));
 
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);

@@ -318,10 +318,6 @@ __global__ void kernel_pt_encoding_128x128(double* pt, double* rot, double* out)
   }
 }
 
-// Assume N=2^15
-// Baby-step-giant-step algorithm to compute ct-pt matmul. 
-// Input: ct1 (128x128), pt1 (128x128), ct2 (128x128), pt2 (128x128) packed as ct = ct1 | ct2, pt = pt1 | pt2
-// Output: ct1@pt1 | ct2@pt2
 void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<double>& pt, PhantomCiphertext &res) {
   const phantom::util::cuda_stream_wrapper &stream_wrapper = *phantom::util::global_variables::default_stream;
   const auto &stream = stream_wrapper.get_stream();
@@ -367,6 +363,39 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, vector<d
       ckks->evaluator.add_inplace(res, bsSum);
   }
   ckks->evaluator.rescale_to_next_inplace(res);
+}
+
+void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, vector<vector<double>>& pt, PhantomCiphertext &res) {
+  PhantomCiphertext product, rotProduct;
+  for (int i=0; i<3; i++) {
+    matrix_mul_ct128x128_pt128x128(ct[i], pt[i], product);
+    ckks->evaluator.rotate_vector(product, slot_count/2, *(ckks->galois_keys), rotProduct);
+    ckks->evaluator.add_inplace(product, rotProduct);
+    if (i == 0)
+      res = product;
+    else
+      ckks->evaluator.add_inplace(res, product);
+  }
+}
+
+void MMEvaluator::matrix_mul_ct128x768_pt768x64x2(vector<PhantomCiphertext>& ct, vector<vector<double>>& pt, PhantomCiphertext &res) {
+  vector<PhantomCiphertext> buf0(3), buf1(3);
+  for (int i=0; i<3; i++) {
+    matrix_mul_ct128x128_pt128x128(ct[i],pt[i], buf0[i]);
+    matrix_mul_ct128x128_pt128x128(ct[i],pt[i+3], buf1[i]);
+  }
+  PhantomCiphertext result0, result1;
+  ckks->evaluator.add_many(buf0, result0);
+  ckks->evaluator.add_many(buf1, result1);
+  ckks->evaluator.rotate_vector_inplace(result1, slot_count / 2, *(ckks->galois_keys));
+  ckks->evaluator.add(result0, result1, res);
+}
+
+void MMEvaluator::matrix_mul_ct128x768_pt768x768(vector<PhantomCiphertext>& ct, vector<vector<vector<double>>>& pt, vector<PhantomCiphertext> &res) {
+  res.resize(3);
+  for (int i=0; i<3; i++) {
+    matrix_mul_ct128x768_pt768x64x2(ct, pt[i], res[i]);
+  }
 }
 
 void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {

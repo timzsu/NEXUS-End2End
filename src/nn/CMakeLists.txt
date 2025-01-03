@@ -3,6 +3,7 @@ add_library(NEXUS_NN SHARED
     gelu.cu
     layer_norm.cu 
     matrix_mul.cu
+    row_pack.cpp
     softmax.cu    
 )
 target_include_directories(NEXUS_NN
