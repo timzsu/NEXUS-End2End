@@ -8,8 +8,8 @@ add_library(NEXUS_NN SHARED
 )
 target_include_directories(NEXUS_NN
   PUBLIC
-  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/nn>
-  $<INSTALL_INTERFACE:include/nn>
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(NEXUS_NN
   PUBLIC

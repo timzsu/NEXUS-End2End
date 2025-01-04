@@ -1,4 +1,4 @@
-#include "softmax.cuh"
+#include "nn/softmax.cuh"
 
 using namespace nexus;
 

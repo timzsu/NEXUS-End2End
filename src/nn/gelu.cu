@@ -1,4 +1,4 @@
-#include "gelu.cuh"
+#include "nn/gelu.cuh"
 
 using namespace nexus;
 using namespace phantom::arith;

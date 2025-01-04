@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "ciphertext.h"
-#include "matrix_mul.cuh"
+#include "nn/matrix_mul.cuh"
 #include "utils.cuh"
 
 using namespace std;

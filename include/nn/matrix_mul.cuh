@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "ckks_evaluator.cuh"
-#include "phantom.h"
 
 namespace nexus {
 using namespace phantom;

@@ -1,9 +1,7 @@
-#include "ciphertext.h"
-#include "matrix_mul.cuh"
-#include "row_pack.h"
-#include "phantom.h"
+#include "nn/matrix_mul.cuh"
+#include "nn/ckks_wrapper.cuh"
+#include "nn/row_pack.h"
 
-#include <Eigen/Core>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
 
@@ -19,23 +17,6 @@ using namespace nexus;
 size_t N = 1ULL << 16;
 double SCALE = pow(2.0, 40);
 size_t L = 8;
-
-inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr) {
-    PhantomPlaintext pt;
-    if (ref_ct) {
-        ckks_evaluator->encoder.encode(data, ref_ct->chain_index(), ref_ct->scale(), pt);
-    } else {
-        ckks_evaluator->encoder.encode(data, SCALE, pt);
-    }
-    return pt;
-}
-
-inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator) {
-    PhantomCiphertext out;
-    auto pt = CKKSEncode(data, ckks_evaluator);
-    ckks_evaluator->encryptor.encrypt(pt, out);
-    return out;
-}
 
 vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
     PhantomPlaintext pt;

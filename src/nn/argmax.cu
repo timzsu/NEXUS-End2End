@@ -1,4 +1,4 @@
-#include "argmax.cuh"
+#include "nn/argmax.cuh"
 
 void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, int len) {
   PhantomCiphertext tmp, b, sign, a_plus_b, a_minus_b, a_minus_b_sgn;

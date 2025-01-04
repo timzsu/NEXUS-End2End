@@ -1,4 +1,4 @@
-#include "layer_norm.cuh"
+#include "nn/layer_norm.cuh"
 
 using namespace nexus;
 
