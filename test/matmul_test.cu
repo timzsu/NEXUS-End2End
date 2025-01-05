@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/benchmark/catch_benchmark.hpp>
+#include <torch/torch.h>
 
 
 using namespace std;
@@ -17,6 +18,8 @@ using namespace nexus;
 size_t N = 1ULL << 16;
 double SCALE = pow(2.0, 40);
 size_t L = 8;
+constexpr double MAX_RTOL=1e-3;
+constexpr double MAX_ATOL=1e-3;
 
 vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
     PhantomPlaintext pt;
@@ -26,7 +29,7 @@ vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluato
     return out;
 }
 
-bool isClose(const vector<double>& v1, const vector<double>& v2, double rtol = 1e-3, double atol = 1e-3) {
+bool isClose(const vector<double>& v1, const vector<double>& v2, double rtol = MAX_RTOL, double atol = MAX_ATOL) {
     if (v1.size() != v2.size()) {
         return false;
     }
@@ -83,12 +86,12 @@ TEST_CASE("Matrix Multiplication") {
         assert np.isclose(res[SLOTS//2:], (ct2 @ pt2).flatten()).all()
     */
     SECTION("ct 128x128 pt 128x128") {
-        Matrix matrix_A1 = Matrix::Random(128, 128);
-        Matrix matrix_B1 = Matrix::Random(128, 128);
-        Matrix matrix_A2 = Matrix::Random(128, 128);
-        Matrix matrix_B2 = Matrix::Random(128, 128);
-        Matrix matrix_C1 = matrix_A1 * matrix_B1;
-        Matrix matrix_C2 = matrix_A2 * matrix_B2;
+        torch::Tensor matrix_A1 = torch::randn({128, 128}, torch::kDouble);
+        torch::Tensor matrix_B1 = torch::randn({128, 128}, torch::kDouble);
+        torch::Tensor matrix_A2 = torch::randn({128, 128}, torch::kDouble);
+        torch::Tensor matrix_B2 = torch::randn({128, 128}, torch::kDouble);
+        torch::Tensor matrix_C1 = torch::mm(matrix_A1, matrix_B1);
+        torch::Tensor matrix_C2 = torch::mm(matrix_A2, matrix_B2);
         auto ct_matrix_128x128 = CKKSEncrypt(flatten_pack(matrix_A1, matrix_A2), ckks_evaluator);
         vector<double> pt_matrix_128x128 = flatten_pack(matrix_B1, matrix_B2);
         vector<double> ctxpt_matrix_128x128 = flatten_pack(matrix_C1, matrix_C2);
@@ -129,28 +132,24 @@ TEST_CASE("Matrix Multiplication") {
         assert np.isclose(res[:SLOTS//2], gt.flatten()).all()
     */
     SECTION("ct 128x64 ct.t 128x64 && ct 128x128 ct 128x64") {
-        Matrix matrix1 = Matrix::Random(128, 128);
-        Matrix matrix2 = Matrix::Random(128, 128);
-        Matrix matrix3 = Matrix::Random(128, 128);
-        Matrix placeholder = Matrix::Zero(128, 128);
-        matrix1.block(0, 64, 128, 64).setZero();
-        matrix2.block(0, 64, 128, 64).setZero();
-        matrix3.block(0, 64, 128, 64).setZero();
+        torch::Tensor matrix1 = torch::randn({128, 128}, torch::kDouble);
+        torch::Tensor matrix2 = torch::randn({128, 128}, torch::kDouble);
+        torch::Tensor matrix3 = torch::randn({128, 128}, torch::kDouble);
+        matrix1.slice(1, 64, 128) = 0;
+        matrix2.slice(1, 64, 128) = 0;
+        matrix3.slice(1, 64, 128) = 0;
 
-        Matrix matrix_intermediate = matrix1 * matrix2.transpose();
-        Matrix gt_matrix = matrix_intermediate * matrix3;
-        for (int i = 0; i < matrix_intermediate.rows(); ++i) {
-            Eigen::VectorXd row = matrix_intermediate.row(i);
-            Eigen::VectorXd rotated_row(row.size());
-            rotated_row << row.segment(i, row.size() - i), row.segment(0, i);
-            matrix_intermediate.row(i) = rotated_row;
+        torch::Tensor matrix_intermediate = torch::mm(matrix1, matrix2.transpose(0, 1));
+        torch::Tensor gt_matrix = torch::mm(matrix_intermediate, matrix3);
+        for (int i = 0; i < matrix_intermediate.size(0); ++i) {
+            matrix_intermediate[i] = torch::roll(matrix_intermediate[i], -i, 0);
         }
 
         auto ct1 = CKKSEncrypt(flatten_pack(matrix1), ckks_evaluator);
         auto ct2 = CKKSEncrypt(flatten_pack(matrix2), ckks_evaluator);
         auto ct3 = CKKSEncrypt(flatten_pack(matrix3), ckks_evaluator);
         vector<double> ct_matrix_intermediate = flatten_pack(matrix_intermediate);
-        vector<double> ct_matrix_res = flatten_pack(gt_matrix, placeholder);
+        vector<double> ct_matrix_res = flatten_pack(gt_matrix, torch::zeros({128, 128}, torch::kDouble));
 
         PhantomCiphertext res1, res2;
         mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);
@@ -189,10 +188,10 @@ TEST_CASE("Matrix Multiplication") {
     assert np.isclose(res_plus_bias[SLOTS//2:], (ct @ pt + bias).flatten()).all()
     */
     SECTION("ct 128x768 pt 768x128") {
-        Matrix matrix_A = Matrix::Random(128, 768);
-        Matrix matrix_B = Matrix::Random(768, 128);
-        Vector bias = Vector::Random(128);
-        Matrix matrix_C = matrix_A * matrix_B;
+        torch::Tensor matrix_A = torch::randn({128, 768}, torch::kDouble);
+        torch::Tensor matrix_B = torch::randn({768, 128}, torch::kDouble);
+        torch::Tensor bias = torch::randn({128}, torch::kDouble);
+        torch::Tensor matrix_C = torch::mm(matrix_A, matrix_B);
         auto packed_A = row_pack_128x768(matrix_A);
         vector<PhantomCiphertext> cts{
             CKKSEncrypt(packed_A[0], ckks_evaluator), 
@@ -202,7 +201,7 @@ TEST_CASE("Matrix Multiplication") {
         auto pts = row_pack_768x128(matrix_B);
         auto bias_packed = row_pack_128x1(bias);
         auto ctxpt = flatten_pack(matrix_C);
-        auto ctxpt_bias = flatten_pack(matrix_C.rowwise() + bias);
+        auto ctxpt_bias = flatten_pack(matrix_C + bias.unsqueeze(0));
 
         PhantomCiphertext res;
         mme.matrix_mul_ct128x768_pt768x128(cts, pts, res);
@@ -237,13 +236,13 @@ TEST_CASE("Matrix Multiplication") {
     assert np.isclose(res[SLOTS//2:].reshape((128, 128))[:, :64], ct @ pt2 + bias2).all()
     */
     SECTION("ct 128x768 pt 768x64x2") {
-        Matrix matrix_A = Matrix::Random(128, 768);
-        Matrix matrix_B1 = Matrix::Random(768, 64);
-        Matrix matrix_B2 = Matrix::Random(768, 64);
-        Vector bias1 = Vector::Random(64);
-        Vector bias2 = Vector::Random(64);
-        Matrix matrix_C1 = matrix_A * matrix_B1;
-        Matrix matrix_C2 = matrix_A * matrix_B2;
+        torch::Tensor matrix_A = torch::rand({128, 768}, torch::kDouble) - 0.5;
+        torch::Tensor matrix_B1 = torch::rand({768, 64}, torch::kDouble) - 0.5;
+        torch::Tensor matrix_B2 = torch::rand({768, 64}, torch::kDouble) - 0.5;
+        torch::Tensor bias1 = torch::rand({64}, torch::kDouble) - 0.5;
+        torch::Tensor bias2 = torch::rand({64}, torch::kDouble) - 0.5;
+        torch::Tensor matrix_C1 = torch::mm(matrix_A, matrix_B1);
+        torch::Tensor matrix_C2 = torch::mm(matrix_A, matrix_B2);
         vector<vector<double>> packed_A = row_pack_128x768(matrix_A);
         vector<PhantomCiphertext> cts{
             CKKSEncrypt(packed_A[0], ckks_evaluator), 
@@ -258,12 +257,11 @@ TEST_CASE("Matrix Multiplication") {
 
         {
         auto mm_res = dec(res, ckks_evaluator);
+        torch::Tensor mm_res1 = torch::from_blob(mm_res.data(), {128, 128}, torch::kDouble).slice(1, 0, 64).clone();
+        torch::Tensor mm_res2 = torch::from_blob(mm_res.data() + 128 * 128, {128, 128}, torch::kDouble).slice(1, 0, 64).clone();
 
-        Eigen::Map<Matrix> mm_res1(mm_res.data(), 128, 128);
-        Eigen::Map<Matrix> mm_res2(mm_res.data() + 128*128, 128, 128);
-
-        REQUIRE(matrix_C1.isApprox(mm_res1.block(0, 0, 128, 64), 1e-3));
-        REQUIRE(matrix_C2.isApprox(mm_res2.block(0, 0, 128, 64), 1e-3));
+        REQUIRE(torch::allclose(matrix_C1, mm_res1, MAX_RTOL, MAX_ATOL));
+        REQUIRE(torch::allclose(matrix_C2, mm_res2, MAX_RTOL, MAX_ATOL));
         }
 
         auto bias_pt = CKKSEncode(bias_packed, ckks_evaluator, &res);
@@ -271,14 +269,13 @@ TEST_CASE("Matrix Multiplication") {
 
         {
         auto mm_res = dec(res, ckks_evaluator);
+        torch::Tensor mm_res1 = torch::from_blob(mm_res.data(), {128, 128}, torch::kDouble).slice(1, 0, 64);
+        torch::Tensor mm_res2 = torch::from_blob(mm_res.data() + 128 * 128, {128, 128}, torch::kDouble).slice(1, 0, 64);
 
-        Eigen::Map<Matrix> mm_res1(mm_res.data(), 128, 128);
-        Eigen::Map<Matrix> mm_res2(mm_res.data() + 128*128, 128, 128);
-        
-        matrix_C1.rowwise() += bias1;
-        matrix_C2.rowwise() += bias2;
-        REQUIRE(matrix_C1.isApprox(mm_res1.block(0, 0, 128, 64), 1e-3));
-        REQUIRE(matrix_C2.isApprox(mm_res2.block(0, 0, 128, 64), 1e-3));
+        matrix_C1 += bias1.unsqueeze(0);
+        matrix_C2 += bias2.unsqueeze(0);
+        REQUIRE(torch::allclose(matrix_C1, mm_res1, MAX_RTOL, MAX_ATOL));
+        REQUIRE(torch::allclose(matrix_C2, mm_res2, MAX_RTOL, MAX_ATOL));
         }
 
         BENCHMARK("matmul") {
@@ -309,15 +306,15 @@ TEST_CASE("Matrix Multiplication") {
         assert np.isclose(res[i][SLOTS//2:].reshape((128, 128)), gt[:, 256*i+128: 256*i+256]).all()
     */
     SECTION("ct 128x768 pt 768x768") {
-        Matrix matrix_A = Matrix::Random(128, 768);
-        Matrix matrix_B = Matrix::Random(768, 768);
-        Vector bias = Vector::Random(768);
-        Matrix matrix_C = matrix_A * matrix_B;
+        torch::Tensor matrix_A = torch::randn({128, 768}, torch::kDouble);
+        torch::Tensor matrix_B = torch::randn({768, 768}, torch::kDouble);
+        torch::Tensor bias = torch::randn({768}, torch::kDouble);
+        torch::Tensor matrix_C = torch::mm(matrix_A, matrix_B);
         vector<vector<double>> packed_A = row_pack_128x768(matrix_A);
         vector<PhantomCiphertext> cts{
-            CKKSEncrypt(packed_A[0], ckks_evaluator), 
-            CKKSEncrypt(packed_A[1], ckks_evaluator), 
-            CKKSEncrypt(packed_A[2], ckks_evaluator), 
+            CKKSEncrypt(packed_A[0], ckks_evaluator),
+            CKKSEncrypt(packed_A[1], ckks_evaluator),
+            CKKSEncrypt(packed_A[2], ckks_evaluator),
         };
         auto pts = row_pack_768x768(matrix_B);
         auto bias_packed = row_pack_768x1(bias);
@@ -325,26 +322,26 @@ TEST_CASE("Matrix Multiplication") {
         vector<PhantomCiphertext> res;
         mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);
 
-        Matrix mm_result = Matrix::Zero(128, 768);
-        for (int i=0; i<3; i++) {
+        torch::Tensor mm_result = torch::zeros({128, 768}, torch::kDouble);
+        for (int i = 0; i < 3; i++) {
             auto mm_res = dec(res[i], ckks_evaluator);
-            mm_result.block(0, i*256, 128, 128) = Eigen::Map<Matrix>(mm_res.data(), 128, 128);
-            mm_result.block(0, i*256+128, 128, 128) = Eigen::Map<Matrix>(mm_res.data() + 128*128, 128, 128);
+            mm_result.slice(1, i * 256, i * 256 + 128) = torch::from_blob(mm_res.data(), {128, 128}, torch::kDouble).clone();
+            mm_result.slice(1, i * 256 + 128, i * 256 + 256) = torch::from_blob(mm_res.data() + 128 * 128, {128, 128}, torch::kDouble).clone();
         }
 
-        REQUIRE(mm_result.isApprox(matrix_C, 1e-3));
-        
+        REQUIRE(torch::allclose(mm_result, matrix_C, MAX_RTOL, MAX_ATOL));
+
         for (int i=0; i<res.size(); i++) {
             auto bias_pt = CKKSEncode(bias_packed[i], ckks_evaluator, &res[i]);
             ckks_evaluator->evaluator.add_plain_inplace(res[i], bias_pt);
         }
-        
+
         for (int i=0; i<3; i++) {
             auto mm_res = dec(res[i], ckks_evaluator);
-            mm_result.block(0, i*256, 128, 128) = Eigen::Map<Matrix>(mm_res.data(), 128, 128);
-            mm_result.block(0, i*256+128, 128, 128) = Eigen::Map<Matrix>(mm_res.data() + 128*128, 128, 128);
+            mm_result.slice(1, i * 256, i * 256 + 128) = torch::from_blob(mm_res.data(), {128, 128}, torch::kDouble).clone();
+            mm_result.slice(1, i * 256 + 128, i * 256 + 256) = torch::from_blob(mm_res.data() + 128 * 128, {128, 128}, torch::kDouble).clone();
         }
-        REQUIRE(mm_result.isApprox(matrix_C.rowwise() + bias, 1e-3));
+        REQUIRE(torch::allclose(mm_result, matrix_C + bias.unsqueeze(0), MAX_RTOL, MAX_ATOL));
 
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);

@@ -1,101 +1,104 @@
 #include "nn/row_pack.h"
-#include <Eigen/Core>
 
 namespace nexus {
 
 using namespace std;
 
-FlatVec flatten_pack(Matrix A) {
-    FlatVec ct_matrix(A.data(), A.data() + A.size());
-    auto buf = ct_matrix;
-    ct_matrix.insert(ct_matrix.end(), buf.begin(), buf.end());
-    return ct_matrix;
-}
-
-FlatVec flatten_pack(Matrix A, Matrix B) {
-    FlatVec ct_matrix(A.data(), A.data() + A.size());
-    FlatVec vec_B(B.data(), B.data() + B.size());
-    ct_matrix.insert(ct_matrix.end(), vec_B.begin(), vec_B.end());
-    return ct_matrix;
-}
-
-FlatVecArray row_pack_128x768(Matrix matrix) {
+// Row pack for 128x768 matrix
+FlatVecArray row_pack_128x768(torch::Tensor matrix) {
+    auto splitted_matrix = torch::split(matrix, 128, 1);
     return FlatVecArray{
-        flatten_pack(matrix.block(0, 0, 128, 128), matrix.block(0, 128, 128, 128)), 
-        flatten_pack(matrix.block(0, 2*128, 128, 128), matrix.block(0, 3*128, 128, 128)), 
-        flatten_pack(matrix.block(0, 4*128, 128, 128), matrix.block(0, 5*128, 128, 128)), 
+        flatten_pack(splitted_matrix[0], splitted_matrix[1]), 
+        flatten_pack(splitted_matrix[2], splitted_matrix[3]), 
+        flatten_pack(splitted_matrix[4], splitted_matrix[5]), 
     };
 }
 
-FlatVecArray row_pack_768x64x2(Matrix matrix1, Matrix matrix2) {
-    vector<Matrix> mat_res(6, Matrix::Zero(2*128, 128));
+// Row pack for 768x64x2 matrices
+FlatVecArray row_pack_768x64x2(torch::Tensor matrix1, torch::Tensor matrix2) {
+    std::array<torch::Tensor, 6> mat_res;
 
     for (int i = 0; i < 3; ++i) {
-      mat_res[i].block(0, 0, 128, 64) = matrix1.block(i * 256, 0, 128, 64);
-      mat_res[i].block(128, 0, 128, 64) = matrix2.block(i * 256+128, 0, 128, 64);
-      mat_res[i+3].block(0, 0, 128, 64) = matrix2.block(i * 256, 0, 128, 64);
-      mat_res[i+3].block(128, 0, 128, 64) = matrix1.block(i * 256+128, 0, 128, 64);
+        mat_res[i] = torch::zeros({2*128, 128}, torch::kDouble);
+        mat_res[i+3] = torch::zeros({2*128, 128}, torch::kDouble);
+
+        mat_res[i].slice(1, 0, 64) = torch::concat({
+            matrix1.slice(0, i*256, i*256+128), 
+            matrix2.slice(0, i*256+128, i*256+256)});
+        mat_res[i+3].slice(1, 0, 64) = torch::concat({
+            matrix2.slice(0, i*256, i*256+128), 
+            matrix1.slice(0, i*256+128, i*256+256)});
     }
 
     FlatVecArray result(6);
     for (int i = 0; i < 6; i++) {
-      result[i] = FlatVec(mat_res[i].data(), mat_res[i].data() + mat_res[i].size());
+        result[i] = vector_from_tensor(mat_res[i]);
     }
     return result;
-  }
+}
 
-FlatVecMat row_pack_768x768(Matrix matrix) {
-    vector<vector<Matrix>> mat_res(3, vector<Matrix>(6, Matrix::Zero(2*128, 128)));
+// Row pack for 768x768 matrix
+FlatVecMat row_pack_768x768(torch::Tensor matrix) {
+    vector<vector<torch::Tensor>> mat_res(3, vector<torch::Tensor>(6));
     FlatVecMat results(3);
 
     for (int m = 0; m < 3; ++m) {
-        Matrix matrix1 = matrix.block(0, m * 256, 768, 128);
-        Matrix matrix2 = matrix.block(0, m * 256 + 128, 768, 128);
+        torch::Tensor matrix1 = matrix.slice(1, m*256, m*256+128);
+        torch::Tensor matrix2 = matrix.slice(1, m*256+128, m*256+256);
         for (int i = 0; i < 3; ++i) {
-        mat_res[m][i].block(0, 0, 128, 128) = matrix1.block(i * 256, 0, 128, 128);
-        mat_res[m][i].block(128, 0, 128, 128) = matrix2.block(i * 256+128, 0, 128, 128);
-        mat_res[m][i+3].block(0, 0, 128, 128) = matrix2.block(i * 256, 0, 128, 128);
-        mat_res[m][i+3].block(128, 0, 128, 128) = matrix1.block(i * 256+128, 0, 128, 128);
+            mat_res[m][i] = torch::concat({
+                matrix1.slice(0, i*256, i*256+128), 
+                matrix2.slice(0, i*256+128, i*256+256)});
+            mat_res[m][i+3] = torch::concat({
+                matrix2.slice(0, i*256, i*256+128), 
+                matrix1.slice(0, i*256+128, i*256+256)});
         }
         results[m].resize(6);
         for (int i = 0; i < 6; i++) {
-        results[m][i] = FlatVec(mat_res[m][i].data(), mat_res[m][i].data() + mat_res[m][i].size());
+            results[m][i] = vector_from_tensor(mat_res[m][i]);
         }
     }
 
     return results;
 }
 
-FlatVecArray row_pack_768x128(Matrix matrix) {
+// Row pack for 768x128 matrix
+FlatVecArray row_pack_768x128(torch::Tensor matrix) {
+    auto splitted_matrix = torch::split(matrix, 128, 0);
     return FlatVecArray{
-        flatten_pack(matrix.block(0, 0, 128, 128), matrix.block(128, 0, 128, 128)), 
-        flatten_pack(matrix.block(2*128, 0, 128, 128), matrix.block(3*128, 0, 128, 128)), 
-        flatten_pack(matrix.block(4*128, 0, 128, 128), matrix.block(5*128, 0, 128, 128)), 
+        flatten_pack(splitted_matrix[0], splitted_matrix[1]), 
+        flatten_pack(splitted_matrix[2], splitted_matrix[3]), 
+        flatten_pack(splitted_matrix[4], splitted_matrix[5]), 
     };
 }
 
-FlatVec row_pack_128x1(Vector vector) {
-    Matrix buf = Matrix::Zero(2*128, 128);
-    buf.rowwise() = vector;
-    return FlatVec(buf.data(), buf.data() + buf.size());
+// Row pack for 128x1 vector
+FlatVec row_pack_128x1(torch::Tensor vector) {
+    return vector_from_tensor(torch::tile(vector, {2*128, 1}));
 }
-FlatVec row_pack_64x1x2(Vector vector1, Vector vector2) {
-    Matrix buf = Matrix::Zero(2*128, 128);
-    buf.block(0, 0, 128, 64).rowwise() = vector1;
-    buf.block(128, 0, 128, 64).rowwise() = vector2;
-    return FlatVec(buf.data(), buf.data() + buf.size());
+
+// Row pack for 64x1x2 vectors
+FlatVec row_pack_64x1x2(torch::Tensor vector1, torch::Tensor vector2) {
+    torch::Tensor buf = torch::zeros({2*128, 128}, torch::kDouble);
+    buf.slice(1, 0, 64) = torch::concat({
+        torch::tile(vector1.unsqueeze(0), {128, 1}), 
+        torch::tile(vector2.unsqueeze(0), {128, 1})});
+    return vector_from_tensor(buf);
 }
-FlatVecArray row_pack_768x1(Vector vector) {
-    std::vector<Matrix> mm_res(3, Matrix::Zero(2*128, 128));
-    for (int m=0; m<3; m++) {
-        Vector vector1 = vector.segment(m * 256, 128);
-        Vector vector2 = vector.segment(m * 256 + 128, 128);
-        mm_res[m].block(0, 0, 128, 128).rowwise() = vector1;
-        mm_res[m].block(128, 0, 128, 128).rowwise() = vector2;
+
+// Row pack for 768x1 vector
+FlatVecArray row_pack_768x1(torch::Tensor vector) {
+    std::vector<torch::Tensor> mm_res(3);
+    for (int m = 0; m < 3; m++) {
+        torch::Tensor vector1 = vector.slice(0, m * 256, m * 256 + 128);
+        torch::Tensor vector2 = vector.slice(0, m * 256 + 128, m * 256 + 256);
+        mm_res[m] = torch::concat({
+            torch::tile(vector1.unsqueeze(0), {128, 1}),
+            torch::tile(vector2.unsqueeze(0), {128, 1})});
     }
     FlatVecArray result(3);
     for (int i = 0; i < 3; i++) {
-        result[i] = FlatVec(mm_res[i].data(), mm_res[i].data() + mm_res[i].size());
+        result[i] = vector_from_tensor(mm_res[i]);
     }
     return result;
 }

@@ -14,5 +14,5 @@ target_include_directories(NEXUS_NN
 target_link_libraries(NEXUS_NN
   PUBLIC
   PhantomBootstrapping::PhantomBootstrapping
-  Eigen3::Eigen
+  ${TORCH_LIBRARIES}
 )

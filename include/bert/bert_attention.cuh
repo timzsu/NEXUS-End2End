@@ -22,7 +22,7 @@ private:
 public:
     BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks) {}
 
-    void load_weights(Matrix Wq, Matrix Wk, Matrix Wv, Matrix Wo, Vector bq, Vector bk, Vector bv, Vector bo);
+    void load_weights(torch::Tensor Wq, torch::Tensor Wk, torch::Tensor Wv, torch::Tensor Wo, torch::Tensor bq, torch::Tensor bk, torch::Tensor bv, torch::Tensor bo);
 
     void random_init();
 

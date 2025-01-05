@@ -22,15 +22,12 @@ inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluat
     return out;
 }
 
-inline void assert_shape(Matrix x, int rows, int cols) {
-    if (x.rows() != rows || x.cols() != cols) {
-        throw std::invalid_argument("Matrix dimensions do not match");
-    }
+inline void assert_shape(torch::Tensor x, int rows, int cols) {
+    TORCH_CHECK_EQ(x.size(0), rows);
+    TORCH_CHECK_EQ(x.size(1), cols);
 }
-inline void assert_shape(Vector x, int size) {
-    if (x.size() != size) {
-        throw std::invalid_argument("Vector dimension does not match");
-    }
+inline void assert_shape(torch::Tensor x, int size) {
+    TORCH_CHECK_EQ(x.size(0), size);
 }
 
 }  // namespace nexus
