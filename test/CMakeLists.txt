@@ -7,6 +7,7 @@ macro(add_test_executable name)
     NEXUS_NN
     Catch2::Catch2WithMain
   )
+  target_precompile_headers(NEXUS_NN PUBLIC ${PROJECT_SOURCE_DIR}/include/precompiled/catch2_includes.h)
   set_property(TARGET ${name}_test PROPERTY CUDA_STANDARD 20)
   add_test(NAME ${name}_test COMMAND ${name}_test)
 endmacro()
@@ -15,3 +16,4 @@ endmacro()
 enable_testing()
 
 add_test_executable(matmul)
+add_test_executable(nonlinear)

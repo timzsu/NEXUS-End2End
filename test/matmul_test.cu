@@ -2,9 +2,8 @@
 #include "nn/ckks_wrapper.cuh"
 #include "nn/row_pack.h"
 
-#include <catch2/catch_test_macros.hpp>
-#include <catch2/benchmark/catch_benchmark.hpp>
-#include <torch/torch.h>
+#include <precompiled/catch2_includes.h>
+#include <precompiled/torch_includes.h>
 
 
 using namespace std;

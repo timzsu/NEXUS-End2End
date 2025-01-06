@@ -2,7 +2,6 @@
 
 #include "bootstrapping/Bootstrapper.cuh"
 #include "ckks_evaluator.cuh"
-#include "phantom.h"
 
 namespace nexus {
 using namespace std;

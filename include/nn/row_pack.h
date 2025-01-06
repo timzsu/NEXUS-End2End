@@ -1,6 +1,6 @@
 #pragma once
 
-#include <torch/torch.h>
+#include <precompiled/torch_includes.h>
 
 namespace nexus {
 

@@ -16,3 +16,4 @@ target_link_libraries(NEXUS_NN
   PhantomBootstrapping::PhantomBootstrapping
   ${TORCH_LIBRARIES}
 )
+target_precompile_headers(NEXUS_NN PUBLIC ${PROJECT_SOURCE_DIR}/include/precompiled/torch_includes.h)
