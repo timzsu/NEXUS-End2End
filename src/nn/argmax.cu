@@ -5,6 +5,7 @@ void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, in
   PhantomPlaintext one, half;
 
   int log_step = log2(len);
+  x_copy = x;
 
   // Transform x = [a_0, ..., a_n, 0, ..., 0] to [a_0, ..., a_n, a_0, ..., a_n, 0, ..., 0]
   ckks->evaluator.rotate_vector(x, -len, *(ckks->galois_keys), tmp);
@@ -38,7 +39,7 @@ void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, in
   }
 
   x_copy.scale() = x.scale();
-  ckks->evaluator.mod_switch_to_inplace(x_copy, x.params_id());
+  ckks->evaluator.mod_switch_to_inplace(x_copy, x.chain_index());
   ckks->evaluator.sub_inplace(x_copy, x);
 
   x_copy = ckks->sgn_eval(x_copy, 2, 2, 1.0);
@@ -48,28 +49,11 @@ void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, in
 }
 
 void ArgmaxEvaluator::bootstrap(PhantomCiphertext &x) {
-  cout << "Bootstrapping started." << endl;
-
-  if (x.coeff_modulus_size() > 1) {
-    cout << "Ciphertext is not at lowest level, remaining level(s): " + to_string(x.coeff_modulus_size()) << endl;
-    cout << "Mod switching to the lowest level..." << endl;
-
-    while (x.coeff_modulus_size() > 1) {
-      ckks->evaluator.mod_switch_to_next_inplace(x);
-    }
+  while (x.coeff_modulus_size() > 1) {
+    ckks->evaluator.mod_switch_to_next_inplace(x);
   }
-
-  cout << "Bootstrapping..." << endl;
   PhantomCiphertext rtn;
   bootstrapper->set_final_scale(x.scale());
-
-  auto start = system_clock::now();
-
   bootstrapper->bootstrap_3(rtn, x);
-
-  duration<double> sec = system_clock::now() - start;
-  cout << "Bootstrapping took: " << sec.count() << "s" << endl;
-  cout << "New ciphertext depth: " << x.coeff_modulus_size() << endl;
-
   x = rtn;
 }
