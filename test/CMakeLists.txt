@@ -1,13 +1,25 @@
 find_package(Catch2 REQUIRED)
 
-macro(add_test_executable name)
+macro(add_nn_test name)
   add_executable(${name}_test ${name}_test.cu)
   target_link_libraries(${name}_test
     PRIVATE
     NEXUS_NN
     Catch2::Catch2WithMain
   )
-  target_precompile_headers(NEXUS_NN PUBLIC ${PROJECT_SOURCE_DIR}/include/precompiled/catch2_includes.h)
+  target_precompile_headers(${name}_test PUBLIC ${PROJECT_SOURCE_DIR}/include/precompiled/catch2_includes.h)
+  set_property(TARGET ${name}_test PROPERTY CUDA_STANDARD 20)
+  add_test(NAME ${name}_test COMMAND ${name}_test)
+endmacro()
+
+macro(add_bert_test name)
+  add_executable(${name}_test ${name}_test.cu)
+  target_link_libraries(${name}_test
+    PRIVATE
+    BERT_MODULES
+    Catch2::Catch2WithMain
+  )
+  target_precompile_headers(${name}_test PUBLIC ${PROJECT_SOURCE_DIR}/include/precompiled/catch2_includes.h)
   set_property(TARGET ${name}_test PROPERTY CUDA_STANDARD 20)
   add_test(NAME ${name}_test COMMAND ${name}_test)
 endmacro()
@@ -15,5 +27,6 @@ endmacro()
 # Enable testing
 enable_testing()
 
-add_test_executable(matmul)
-add_test_executable(nonlinear)
+add_nn_test(matmul)
+add_nn_test(nonlinear)
+add_bert_test(bert)

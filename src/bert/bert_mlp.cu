@@ -3,27 +3,18 @@
 
 namespace nexus {
 
-void BertMLP::load_weights(Matrix W_up, Matrix W_down, Vector b_up, Vector b_down) {
+void BertMLP::pack_weights() {
     assert_shape(W_up, hidden_dim, hidden_dim*expansion_factor);
     assert_shape(W_down, hidden_dim*expansion_factor, hidden_dim);
     assert_shape(b_up, hidden_dim*expansion_factor);
     assert_shape(b_down, hidden_dim);
 
     for (int i=0; i<expansion_factor; i++) {
-        W_up_packed[i] = row_pack_768x768(W_up.block(0, i*hidden_dim, hidden_dim, hidden_dim));
-        B_up_packed[i] = row_pack_768x1(b_up.segment(i*hidden_dim, hidden_dim));
-        W_down_packed[i] = row_pack_768x768(W_down.block(i*hidden_dim, 0, hidden_dim, hidden_dim));
+        W_up_packed[i] = row_pack_768x768(W_up.slice(1, i*hidden_dim, (i+1)*hidden_dim));
+        B_up_packed[i] = row_pack_768x1(b_up.slice(0, i*hidden_dim, (i+1)*hidden_dim));
+        W_down_packed[i] = row_pack_768x768(W_down.slice(1, i*hidden_dim, (i+1)*hidden_dim));
     }
     B_down_packed = row_pack_768x1(b_down);
-}
-
-void BertMLP::random_init() {
-    load_weights(
-        Matrix::Random(hidden_dim, hidden_dim*expansion_factor),
-        Matrix::Random(hidden_dim*expansion_factor, hidden_dim),
-        Vector::Random(hidden_dim*expansion_factor),
-        Vector::Random(hidden_dim)
-    );
 }
 
 std::vector<PhantomCiphertext> BertMLP::forward(vector<PhantomCiphertext>& x) {

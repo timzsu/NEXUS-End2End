@@ -6,7 +6,7 @@
 
 namespace nexus {
 
-class BertAttention {
+class BertAttention: torch::nn::Module {
 private:
     MMEvaluator mm_evaluator;
     SoftmaxEvaluator softmax_evaluator;
@@ -19,12 +19,31 @@ private:
     FlatVecMat Wo_packed;
     FlatVecArray Bo_packed;
 
+    torch::Tensor Wq, Wk, Wv, Wo;
+    torch::Tensor bq, bk, bv, bo;
+
 public:
-    BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks) {}
+    BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks) {
+        Wq = torch::randn({768, 768}, torch::kDouble);
+        Wk = torch::randn({768, 768}, torch::kDouble);
+        Wv = torch::randn({768, 768}, torch::kDouble);
+        Wo = torch::randn({768, 768}, torch::kDouble);
+        bq = torch::randn({768}, torch::kDouble);
+        bk = torch::randn({768}, torch::kDouble);
+        bv = torch::randn({768}, torch::kDouble);
+        bo = torch::randn({768}, torch::kDouble);
 
-    void load_weights(torch::Tensor Wq, torch::Tensor Wk, torch::Tensor Wv, torch::Tensor Wo, torch::Tensor bq, torch::Tensor bk, torch::Tensor bv, torch::Tensor bo);
+        register_parameter("weight_q", Wq, false);
+        register_parameter("weight_k", Wk, false);
+        register_parameter("weight_v", Wv, false);
+        register_parameter("weight_o", Wo, false);
+        register_parameter("bias_q", bq, false);
+        register_parameter("bias_k", bk, false);
+        register_parameter("bias_v", bv, false);
+        register_parameter("bias_o", bo, false);
+    }
 
-    void random_init();
+    void pack_weights();
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x);
 };
