@@ -118,11 +118,11 @@ TEST_CASE("Non-linear Operations") {
 }
 
 TEST_CASE("Argmax") {
-    long logN = 15;
+    long logN = log2(N);
     long logn = logN - 2;
     long sparse_slots = (1 << logn);
 
-    int logp = 46;
+    int logp = 50;
     int logq = 51;
     int log_special_prime = 51;
 
@@ -191,24 +191,19 @@ TEST_CASE("Argmax") {
     PhantomCiphertext cipher_output;
     vector<double> input(slot_count, 0.0);
 
-    int argmax_input_size = 8;
+    int argmax_input_size = 8; // FIXME: Larger size will fail
     torch::Tensor input_tensor = torch::zeros({sparse_slots}, torch::kDouble);
     input_tensor.slice(0, 0, argmax_input_size) = random_tensor({argmax_input_size}, -0.5, 0.5);
     torch::Tensor output_tensor = torch::zeros({sparse_slots}, torch::kDouble);
     output_tensor.index({torch::argmax(input_tensor)}) = 1.0;
 
-    vector<double> argmax_input = vector_from_tensor(input_tensor);
-
-    // Sparse input
-    for (size_t i = 0; i < slot_count; i++) {
-        input[i] = argmax_input[i % sparse_slots];
-    }
+    input = vector_from_tensor(torch::tile(input_tensor, {2}));
 
     // Initialize the bootstrapper
-    cout << "Generating Optimal Minimax Polynomials..." << endl;
+    // cout << "Generating Optimal Minimax Polynomials..." << endl;
     bootstrapper->prepare_mod_polynomial();
 
-    cout << "Adding Bootstrapping Keys..." << endl;
+    // cout << "Adding Bootstrapping Keys..." << endl;
     vector<int> gal_steps_vector;
 
     gal_steps_vector.push_back(0);
@@ -225,12 +220,11 @@ TEST_CASE("Argmax") {
     ckks_evaluator->decryptor.create_galois_keys_from_steps(gal_steps_vector, *(ckks_evaluator->galois_keys));
     bootstrapper->slot_vec.push_back(logn);
 
-    cout << "Generating Linear Transformation Coefficients..." << endl;
+    // cout << "Generating Linear Transformation Coefficients..." << endl;
     bootstrapper->generate_LT_coefficient_3();
 
     ckks_evaluator->encoder.encode(input, scale, plain_input);
     ckks_evaluator->encryptor.encrypt(plain_input, cipher_input);
-    ckks_evaluator->encryptor.encrypt(plain_input, cipher_output); // TODO: change
     for (int i = 0; i < bs_mod_count; i++) {
         ckks_evaluator->evaluator.mod_switch_to_next_inplace(cipher_input);
     }
@@ -239,6 +233,12 @@ TEST_CASE("Argmax") {
     auto mm_res = dec(cipher_output, ckks_evaluator);
     torch::Tensor tensor_res = tensor_from_vector(mm_res, 2, sparse_slots);
 
-    REQUIRE(torch::allclose(tensor_res.index({0}).slice(0, 0, argmax_input_size), output_tensor.slice(0, 0, argmax_input_size), 5e-2, 5e-2));
+    auto pred = tensor_res.index({0}).slice(0, 0, argmax_input_size);
+    auto gt = output_tensor.slice(0, 0, argmax_input_size);
 
+    REQUIRE(torch::allclose(gt, pred, 5e-2, 5e-2));
+
+    BENCHMARK("argmax") {
+      argmax_evaluator.argmax(cipher_input, cipher_output, argmax_input_size);
+    };
 }
