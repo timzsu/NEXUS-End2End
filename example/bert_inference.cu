@@ -1,6 +1,5 @@
 #include "bert/bert.cuh"
 
-#include <precompiled/catch2_includes.h>
 #include <precompiled/torch_includes.h>
 
 using namespace std;
@@ -9,8 +8,6 @@ using namespace phantom::arith;
 using namespace phantom::util;
 using namespace nexus;
 
-constexpr double MAX_RTOL=1e-3;
-constexpr double MAX_ATOL=1e-2;
 
 PhantomCiphertext enc(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator) {
     PhantomPlaintext pt;
@@ -32,7 +29,7 @@ torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
     return torch::rand(size, torch::kDouble) * (max - min) + min;   
 }
 
-TEST_CASE("BERT Components") {
+int main() {
     auto poly_modulus_degree = 1ULL << 16;
     double scale = pow(2.0, 40);
     EncryptionParameters parms(scheme_type::ckks);
@@ -54,8 +51,7 @@ TEST_CASE("BERT Components") {
     auto encoder = std::make_shared<PhantomCKKSEncoder>(*context);
 
     auto ckks_evaluator = std::make_shared<CKKSEvaluator>(context, public_key, secret_key, encoder, relin_keys, galois_keys, scale);
-
-    SECTION("Attention") {
+    {
         BertAttention attention(ckks_evaluator);
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
@@ -68,14 +64,10 @@ TEST_CASE("BERT Components") {
         attention.pack_weights();
 
         auto out = attention.forward(input_ct);
-
-        for (auto &o : out) {
-            auto dec_out = dec(o, ckks_evaluator);
-            auto tensor_out = tensor_from_vector(dec_out, 256, 128);
-        }
     }
-    
-    SECTION("MLP") {
+
+    {
+        
         BertMLP mlp(ckks_evaluator);
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);

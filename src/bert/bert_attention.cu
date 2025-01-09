@@ -14,14 +14,14 @@ void BertAttention::pack_weights() {
     assert_shape(bo, 768);
 
     std::vector<std::pair<int, int>> orders{{0,3},{2,1},{4,7},{6,5},{8,11},{10,9}};
-    for (int i=0; i<orders.size(); i++) {
+    for (int i=0; i<num_heads/2; i++) {
         auto& [lhs, rhs] = orders[i];
         Wq_packed[i] = row_pack_768x64x2(Wq.slice(1, lhs*64, (lhs+1)*64), Wq.slice(1, rhs*64, (rhs+1)*64));
         Wk_packed[i] = row_pack_768x64x2(Wk.slice(1, lhs*64, (lhs+1)*64), Wk.slice(1, rhs*64, (rhs+1)*64));
         Wv_packed[i] = row_pack_768x128(torch::concat({Wv.slice(1, lhs*64, (lhs+1)*64), Wv.slice(1, rhs*64, (rhs+1)*64)}, 1));
         Bq_packed[i] = row_pack_64x1x2(bq.slice(0, lhs*64, (lhs+1)*64), bq.slice(0, rhs*64, (rhs+1)*64));
         Bk_packed[i] = row_pack_64x1x2(bk.slice(0, lhs*64, (lhs+1)*64), bk.slice(0, rhs*64, (rhs+1)*64));
-        Bv_packed[i] = row_pack_128x1(torch::concat({bv.slice(0, lhs*64, (lhs+1)*64), bv.slice(0, rhs*64, (rhs+1)*64)}, 1));
+        Bv_packed[i] = row_pack_128x1(torch::concat({bv.slice(0, lhs*64, (lhs+1)*64), bv.slice(0, rhs*64, (rhs+1)*64)}, 0));
     }
     Wo_packed = row_pack_768x768(Wo);
     Bo_packed = row_pack_768x1(bo);
@@ -29,21 +29,23 @@ void BertAttention::pack_weights() {
 
 std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>& x) {
     // Implement the forward pass for self-attention here
-    std::array<PhantomCiphertext, num_heads/2> Q, K, V, QK, So, QKV;
+    std::array<PhantomCiphertext, num_heads/2> QKV;
     for (int i=0; i<num_heads/2; i++) {
-        mm_evaluator.matrix_mul_ct128x768_pt768x64x2(x, Wq_packed[i], Q[i]);
-        mm_evaluator.matrix_mul_ct128x768_pt768x64x2(x, Wk_packed[i], K[i]);
-        mm_evaluator.matrix_mul_ct128x768_pt768x128(x, Wv_packed[i], V[i]);
-        auto bq_pt = CKKSEncode(Bq_packed[i], ckks, &Q[i]);
-        ckks->evaluator.add_plain_inplace(Q[i], bq_pt);
-        auto bk_pt = CKKSEncode(Bk_packed[i], ckks, &K[i]);
-        ckks->evaluator.add_plain_inplace(K[i], bk_pt);
-        auto bv_pt = CKKSEncode(Bv_packed[i], ckks, &V[i]);
-        ckks->evaluator.add_plain_inplace(V[i], bv_pt);
-
-        mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose(Q[i], K[i], QK[i]);
-        softmax_evaluator.softmax(QK[i], So[i], 128);
-        mm_evaluator.matrix_mul_ct128x128_ct128x128(So[i], V[i], QKV[i]);
+        PhantomCiphertext Q, K, V;
+        mm_evaluator.matrix_mul_ct128x768_pt768x64x2(x, Wq_packed[i], Q);
+        mm_evaluator.matrix_mul_ct128x768_pt768x64x2(x, Wk_packed[i], K);
+        mm_evaluator.matrix_mul_ct128x768_pt768x128(x, Wv_packed[i], V);
+        PhantomPlaintext bq_pt = CKKSEncode(Bq_packed[i], ckks, &Q);
+        ckks->evaluator.add_plain_inplace(Q, bq_pt);
+        PhantomPlaintext bk_pt = CKKSEncode(Bk_packed[i], ckks, &K);
+        ckks->evaluator.add_plain_inplace(K, bk_pt);
+        PhantomPlaintext bv_pt = CKKSEncode(Bv_packed[i], ckks, &V);
+        ckks->evaluator.add_plain_inplace(V, bv_pt);
+        
+        PhantomCiphertext QK, So;
+        mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose(Q, K, QK);
+        softmax_evaluator.softmax(QK, So, 128);
+        mm_evaluator.matrix_mul_ct128x128_ct128x128(So, V, QKV[i]);
     }
     std::vector<PhantomCiphertext> attention_value(num_heads/4), attn_output;
     for (int i=0; i<num_heads/4; i++) {
