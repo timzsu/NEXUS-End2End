@@ -1,6 +1,7 @@
 #include "nn/matrix_mul.cuh"
 #include "nn/ckks_wrapper.cuh"
 #include "nn/row_pack.h"
+#include "torch/cuda.h"
 
 #include <precompiled/catch2_includes.h>
 #include <precompiled/torch_includes.h>
@@ -101,8 +102,10 @@ TEST_CASE("Matrix Multiplication") {
 
         REQUIRE(isClose(mm_res, ctxpt_matrix_128x128));
 
+        torch::cuda::synchronize();
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x128_pt128x128(ct_matrix_128x128, pt_matrix_128x128, res);
+            torch::cuda::synchronize();
         };
     }
 
@@ -161,12 +164,16 @@ TEST_CASE("Matrix Multiplication") {
 
         REQUIRE(isClose(mm_res2, ct_matrix_res));
 
+        torch::cuda::synchronize();
         BENCHMARK("matmul1") {
-           mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);
+           mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);  
+            torch::cuda::synchronize();
         };
         
+        torch::cuda::synchronize();
         BENCHMARK("matmul2") {
-        mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
+            mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
+            torch::cuda::synchronize();
         };
     }
 
@@ -210,8 +217,10 @@ TEST_CASE("Matrix Multiplication") {
         ckks_evaluator->evaluator.add_plain_inplace(res, bias_pt);
         REQUIRE(isClose(dec(res, ckks_evaluator), ctxpt_bias));
 
+        torch::cuda::synchronize();
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x128(cts, pts, res);
+            torch::cuda::synchronize();
         };
     }
 
@@ -277,8 +286,10 @@ TEST_CASE("Matrix Multiplication") {
         REQUIRE(torch::allclose(matrix_C2, mm_res2, MAX_RTOL, MAX_ATOL));
         }
 
+        torch::cuda::synchronize();
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x64x2(cts, pts, res);
+            torch::cuda::synchronize();
         };
     }
 
@@ -342,8 +353,10 @@ TEST_CASE("Matrix Multiplication") {
         }
         REQUIRE(torch::allclose(mm_result, matrix_C + bias.unsqueeze(0), MAX_RTOL, MAX_ATOL));
 
+        torch::cuda::synchronize();
         BENCHMARK("matmul") {
             mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);
+            torch::cuda::synchronize();
         };
     }
 

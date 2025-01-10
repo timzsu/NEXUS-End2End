@@ -64,16 +64,18 @@ TEST_CASE("Non-linear Operations") {
         torch::Tensor matrix_res = torch::softmax(matrix_A, 1);
 
         PhantomCiphertext ct_matrix = CKKSEncrypt(vector_from_tensor(torch::concat({matrix_A, torch::zeros_like(matrix_A)}, 1)), ckks_evaluator);
+        torch::cuda::synchronize();
+        BENCHMARK("softmax") {
+            PhantomCiphertext res, input_copy = ct_matrix;
+            softmax_evaluator.softmax(input_copy, res, 128);
+            torch::cuda::synchronize();
+        };
         PhantomCiphertext res;
         softmax_evaluator.softmax(ct_matrix, res, 128);
         auto mm_res = dec(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, 128, 256);
 
         REQUIRE(torch::allclose(tensor_res.slice(1, 0, 128), matrix_res, MAX_RTOL, MAX_ATOL));
-
-        BENCHMARK("softmax") {
-            softmax_evaluator.softmax(ct_matrix, res, 128);
-        };
     }
 
     SECTION("GELU") {
@@ -83,6 +85,12 @@ TEST_CASE("Non-linear Operations") {
         torch::Tensor matrix_res = torch::nn::functional::gelu(matrix_A);
         PhantomCiphertext ct_matrix = CKKSEncrypt(vector_from_tensor(matrix_A), ckks_evaluator);
 
+        torch::cuda::synchronize();
+        BENCHMARK("gelu") {
+            PhantomCiphertext res, input_copy = ct_matrix;
+            gelu_evaluator.gelu(input_copy, res);
+            torch::cuda::synchronize();
+        };
         PhantomCiphertext res;
         gelu_evaluator.gelu(ct_matrix, res);
         auto mm_res = dec(res, ckks_evaluator);
@@ -90,9 +98,6 @@ TEST_CASE("Non-linear Operations") {
 
         REQUIRE(torch::allclose(matrix_res, tensor_res, MAX_RTOL, MAX_ATOL));
 
-        BENCHMARK("gelu") {
-            gelu_evaluator.gelu(ct_matrix, res);
-        };
     }
 
     SECTION("Layer Norm") {
@@ -104,6 +109,12 @@ TEST_CASE("Non-linear Operations") {
         torch::Tensor matrix_res = torch::layer_norm(matrix_A, 768);
         PhantomCiphertext ct_matrix = CKKSEncrypt(vector_from_tensor(torch::concat({matrix_A, placeholder}, 1)), ckks_evaluator);
 
+        torch::cuda::synchronize();
+        BENCHMARK("layer_norm") {
+            PhantomCiphertext res, input_copy = ct_matrix;
+            ln_evaluator.layer_norm(input_copy, res, 1024);
+            torch::cuda::synchronize();
+        };
         PhantomCiphertext res;
         ln_evaluator.layer_norm(ct_matrix, res, 1024);
         auto mm_res = dec(res, ckks_evaluator);
@@ -111,14 +122,11 @@ TEST_CASE("Non-linear Operations") {
 
         REQUIRE(torch::allclose(tensor_res.slice(1, 0, 768), matrix_res, MAX_RTOL, MAX_ATOL));
 
-        BENCHMARK("layer_norm") {
-            ln_evaluator.layer_norm(ct_matrix, res, 1024);
-        };
     }
 }
 
 TEST_CASE("Argmax") {
-    long logN = log2(N);
+    long logN = 15;
     long logn = logN - 2;
     long sparse_slots = (1 << logn);
 
