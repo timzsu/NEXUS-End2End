@@ -22,14 +22,6 @@ size_t L = 18;
 constexpr double MAX_RTOL=1e-3;
 constexpr double MAX_ATOL=1e-2;
 
-vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
-    PhantomPlaintext pt;
-    ckks_evaluator->decryptor.decrypt(ct, pt);
-    vector<double> out;
-    ckks_evaluator->encoder.decode(pt, out);
-    return out;
-}
-
 torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
     return torch::rand(size, torch::kDouble) * (max - min) + min;   
 }
@@ -72,8 +64,8 @@ TEST_CASE("Non-linear Operations") {
         };
         PhantomCiphertext res;
         softmax_evaluator.softmax(ct_matrix, res, 128);
-        auto mm_res = dec(res, ckks_evaluator);
-        torch::Tensor tensor_res = tensor_from_vector(mm_res, 128, 256);
+        auto mm_res = CKKSDecrypt(res, ckks_evaluator);
+        torch::Tensor tensor_res = tensor_from_vector(mm_res, {128, 256});
 
         REQUIRE(torch::allclose(tensor_res.slice(1, 0, 128), matrix_res, MAX_RTOL, MAX_ATOL));
     }
@@ -93,8 +85,8 @@ TEST_CASE("Non-linear Operations") {
         };
         PhantomCiphertext res;
         gelu_evaluator.gelu(ct_matrix, res);
-        auto mm_res = dec(res, ckks_evaluator);
-        torch::Tensor tensor_res = tensor_from_vector(mm_res, 128, 256);
+        auto mm_res = CKKSDecrypt(res, ckks_evaluator);
+        torch::Tensor tensor_res = tensor_from_vector(mm_res, {128, 256});
 
         REQUIRE(torch::allclose(matrix_res, tensor_res, MAX_RTOL, MAX_ATOL));
 
@@ -117,8 +109,8 @@ TEST_CASE("Non-linear Operations") {
         };
         PhantomCiphertext res;
         ln_evaluator.layer_norm(ct_matrix, res, 1024);
-        auto mm_res = dec(res, ckks_evaluator);
-        torch::Tensor tensor_res = tensor_from_vector(mm_res, 16, 2048);
+        auto mm_res = CKKSDecrypt(res, ckks_evaluator);
+        torch::Tensor tensor_res = tensor_from_vector(mm_res, {16, 2048});
 
         REQUIRE(torch::allclose(tensor_res.slice(1, 0, 768), matrix_res, MAX_RTOL, MAX_ATOL));
 
@@ -238,8 +230,8 @@ TEST_CASE("Argmax") {
     }
 
     argmax_evaluator.argmax(cipher_input, cipher_output, argmax_input_size);
-    auto mm_res = dec(cipher_output, ckks_evaluator);
-    torch::Tensor tensor_res = tensor_from_vector(mm_res, 2, sparse_slots);
+    auto mm_res = CKKSDecrypt(cipher_output, ckks_evaluator);
+    torch::Tensor tensor_res = tensor_from_vector(mm_res, {2, sparse_slots});
 
     auto pred = tensor_res.index({0}).slice(0, 0, argmax_input_size);
     auto gt = output_tensor.slice(0, 0, argmax_input_size);

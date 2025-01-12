@@ -22,6 +22,15 @@ inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluat
     return out;
 }
 
+inline vector<double> CKKSDecrypt(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
+    PhantomPlaintext pt;
+    ckks_evaluator->decryptor.decrypt(ct, pt);
+    vector<double> out;
+    ckks_evaluator->encoder.decode(pt, out);
+    return out;
+}
+
+
 inline void assert_shape(torch::Tensor x, int rows, int cols) {
     TORCH_CHECK_EQ(x.size(0), rows);
     TORCH_CHECK_EQ(x.size(1), cols);

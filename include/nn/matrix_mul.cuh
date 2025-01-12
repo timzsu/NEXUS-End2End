@@ -79,6 +79,8 @@ class MMEvaluator {
   void matrix_mul_ct128x768_pt768x768(vector<PhantomCiphertext>& ct, vector<vector<vector<double>>>& pt, vector<PhantomCiphertext> &res);
   void matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);
   void matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);
+  void matrix_mul_ct128x64_ct128x64_transpose_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);
+  void matrix_mul_ct128x128_ct128x128_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);
 };
 
 }  // namespace nexus

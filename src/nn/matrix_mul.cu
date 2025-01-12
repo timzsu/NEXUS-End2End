@@ -7,6 +7,8 @@
 
 #include "ciphertext.h"
 #include "nn/matrix_mul.cuh"
+#include "nn/row_pack.h"
+#include "nn/ckks_wrapper.cuh"
 #include "utils.cuh"
 
 using namespace std;
@@ -569,4 +571,34 @@ void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, Phantom
       ckks->evaluator.add_inplace(res, sumbs);
     }
   }
+}
+
+vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
+    PhantomPlaintext pt;
+    ckks_evaluator->decryptor.decrypt(ct, pt);
+    vector<double> out;
+    ckks_evaluator->encoder.decode(pt, out);
+    return out;
+}
+
+void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
+  auto matrix1 = tensor_from_vector(dec(ct1, ckks), {128, 128});
+  auto matrix2 = tensor_from_vector(dec(ct2, ckks), {128, 128});
+  auto mm_res = torch::mm(matrix1, matrix2.transpose(0, 1));
+  for (int i = 0; i < mm_res.size(0); ++i) {
+    mm_res[i] = torch::roll(mm_res[i], -i, 0);
+  }
+  res = CKKSEncrypt(flatten_pack(mm_res), ckks);
+  ckks->evaluator.mod_switch_to_inplace(res, ct1.chain_index() + 1);
+}
+
+void MMEvaluator::matrix_mul_ct128x128_ct128x128_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
+  auto matrix1 = tensor_from_vector(dec(ct1, ckks), {128, 128});
+  auto matrix2 = tensor_from_vector(dec(ct2, ckks), {128, 128});
+  for (int i = 0; i < matrix1.size(0); ++i) {
+    matrix1[i] = torch::roll(matrix1[i], i, 0);
+  }
+  auto mm_res = torch::mm(matrix1, matrix2);
+  res = CKKSEncrypt(flatten_pack(mm_res, torch::zeros({128, 128}, torch::kDouble)), ckks);
+  ckks->evaluator.mod_switch_to_inplace(res, ct1.chain_index() + 1);
 }

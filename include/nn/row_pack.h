@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ATen/core/ATen_fwd.h"
 #include <precompiled/torch_includes.h>
 
 namespace nexus {
@@ -15,8 +16,8 @@ inline FlatVec vector_from_tensor(torch::Tensor t) {
     return FlatVec(t.const_data_ptr<double>(), t.const_data_ptr<double>() + t.numel());
 }
 
-inline torch::Tensor tensor_from_vector(FlatVec vec, int rows, int cols) {
-    return torch::from_blob(vec.data(), {rows, cols}, torch::kDouble).clone();
+inline torch::Tensor tensor_from_vector(FlatVec vec, torch::IntArrayRef size) {
+    return torch::from_blob(vec.data(), size, torch::kDouble).clone();
 }
 
 // basic pack

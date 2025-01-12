@@ -83,7 +83,7 @@ int main() {
 
         for (auto &o : out) {
             auto dec_out = dec(o, ckks_evaluator);
-            auto tensor_out = tensor_from_vector(dec_out, 256, 128);
+            auto tensor_out = tensor_from_vector(dec_out, {256, 128});
         }
     }
 }
