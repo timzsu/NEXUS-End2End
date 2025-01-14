@@ -1,6 +1,5 @@
 #pragma once
 
-#include "ATen/core/ATen_fwd.h"
 #include <precompiled/torch_includes.h>
 
 namespace nexus {

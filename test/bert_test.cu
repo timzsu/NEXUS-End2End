@@ -1,7 +1,7 @@
 #include "bert/bert.cuh"
+#include "nn/nexus_utility.cuh"
 
 #include <precompiled/catch2_includes.h>
-#include <precompiled/torch_includes.h>
 
 using namespace std;
 using namespace phantom;
@@ -11,22 +11,6 @@ using namespace nexus;
 
 constexpr double MAX_RTOL=1e-3;
 constexpr double MAX_ATOL=1e-2;
-
-PhantomCiphertext enc(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator) {
-    PhantomPlaintext pt;
-    PhantomCiphertext ct;
-    ckks_evaluator->encoder.encode(data, ckks_evaluator->scale, pt);
-    ckks_evaluator->encryptor.encrypt(pt, ct);
-    return ct;
-}
-
-vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
-    PhantomPlaintext pt;
-    ckks_evaluator->decryptor.decrypt(ct, pt);
-    vector<double> out;
-    ckks_evaluator->encoder.decode(pt, out);
-    return out;
-}
 
 torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
     return torch::rand(size, torch::kDouble) * (max - min) + min;   
@@ -59,39 +43,53 @@ TEST_CASE("BERT Components") {
         BertAttention attention(ckks_evaluator);
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
+        auto gt_output = attention.forward(input.to(torch::kFloat));
+
         auto packed_input = row_pack_128x768(input);
         std::vector<PhantomCiphertext> input_ct;
         for (auto &inp : packed_input) {
-            input_ct.push_back(enc(inp, ckks_evaluator));
+            input_ct.push_back(CKKSEncrypt(inp, ckks_evaluator));
         }
 
         attention.pack_weights();
 
         auto out = attention.forward(input_ct);
 
+        std::vector<torch::Tensor> decrypted_out;
         for (auto &o : out) {
-            auto dec_out = dec(o, ckks_evaluator);
-            auto tensor_out = tensor_from_vector(dec_out, {256, 128});
+            auto tensor_out = tensor_from_vector(CKKSDecrypt(o, ckks_evaluator), {2, 128, 128});
+            decrypted_out.push_back(tensor_out.index({0}));
+            decrypted_out.push_back(tensor_out.index({1}));
         }
+        torch::Tensor attn_output = torch::concat(decrypted_out, -1);
+
+        CHECK(torch::allclose(attn_output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
     }
     
     SECTION("MLP") {
         BertMLP mlp(ckks_evaluator);
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
+        torch::Tensor gt_output = mlp.forward(input.to(torch::kFloat));
+
         auto packed_input = row_pack_128x768(input);
         std::vector<PhantomCiphertext> input_ct;
         for (auto &inp : packed_input) {
-            input_ct.push_back(enc(inp, ckks_evaluator));
+            input_ct.push_back(CKKSEncrypt(inp, ckks_evaluator));
         }
 
         mlp.pack_weights();
 
         auto out = mlp.forward(input_ct);
 
+        std::vector<torch::Tensor> decrypted_out;
         for (auto &o : out) {
-            auto dec_out = dec(o, ckks_evaluator);
-            auto tensor_out = tensor_from_vector(dec_out, {256, 128});
+            auto tensor_out = tensor_from_vector(CKKSDecrypt(o, ckks_evaluator), {2, 128, 128});
+            decrypted_out.push_back(tensor_out.index({0}));
+            decrypted_out.push_back(tensor_out.index({1}));
         }
+        torch::Tensor output = torch::concat(decrypted_out, -1);
+
+        CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
     }
 }

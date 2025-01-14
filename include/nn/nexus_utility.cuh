@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ckks_evaluator.cuh"
-#include "row_pack.h"
+#include <precompiled/torch_includes.h>
 
 namespace nexus {
 
@@ -31,12 +31,16 @@ inline vector<double> CKKSDecrypt(PhantomCiphertext ct, shared_ptr<CKKSEvaluator
 }
 
 
-inline void assert_shape(torch::Tensor x, int rows, int cols) {
-    TORCH_CHECK_EQ(x.size(0), rows);
-    TORCH_CHECK_EQ(x.size(1), cols);
+inline void assert_shape(torch::Tensor x, torch::IntArrayRef size) {
+    TORCH_CHECK_EQ(x.sizes(), size);
 }
-inline void assert_shape(torch::Tensor x, int size) {
-    TORCH_CHECK_EQ(x.size(0), size);
+
+inline void show(torch::Tensor x, torch::IntArrayRef boundary, std::string prefix) {
+    std::vector<torch::indexing::TensorIndex> indices;
+    for (auto &b:boundary) {
+        indices.push_back(torch::indexing::Slice(0, b));
+    }
+    cerr << prefix << ": " << x.index(indices) << endl;
 }
 
 }  // namespace nexus

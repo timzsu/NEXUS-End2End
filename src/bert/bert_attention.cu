@@ -1,13 +1,25 @@
 #include "bert/bert_attention.cuh"
-#include "nn/ckks_wrapper.cuh"
+#include "nn/nexus_utility.cuh"
+#include "nn/row_pack.h"
+#include "nn/constant.cuh"
 
 namespace nexus {
 
 void BertAttention::pack_weights() {
-    assert_shape(Wq, 768, 768);
-    assert_shape(Wk, 768, 768);
-    assert_shape(Wv, 768, 768);
-    assert_shape(Wo, 768, 768);
+
+    torch::Tensor Wq = q_proj->weight.transpose(0, 1).to(torch::kDouble);
+    torch::Tensor Wk = k_proj->weight.transpose(0, 1).to(torch::kDouble);
+    torch::Tensor Wv = v_proj->weight.transpose(0, 1).to(torch::kDouble);
+    torch::Tensor Wo = o_proj->weight.transpose(0, 1).to(torch::kDouble);
+    torch::Tensor bq = q_proj->bias.to(torch::kDouble);
+    torch::Tensor bk = k_proj->bias.to(torch::kDouble);
+    torch::Tensor bv = v_proj->bias.to(torch::kDouble);
+    torch::Tensor bo = o_proj->bias.to(torch::kDouble);
+
+    assert_shape(Wq, {768, 768});
+    assert_shape(Wk, {768, 768});
+    assert_shape(Wv, {768, 768});
+    assert_shape(Wo, {768, 768});
     assert_shape(bq, 768);
     assert_shape(bk, 768);
     assert_shape(bv, 768);
@@ -43,19 +55,54 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
         ckks->evaluator.add_plain_inplace(V, bv_pt);
         
         PhantomCiphertext QK, So;
-        mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose(Q, K, QK);
-        softmax_evaluator.softmax(QK, So, 128);
-        mm_evaluator.matrix_mul_ct128x128_ct128x128(So, V, QKV[i]);
+        mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose_gt(Q, K, QK);
+        std::vector<double> ratio(slot_count, 1./std::sqrt(head_dim));
+        ckks->evaluator.multiply_vector_inplace_reduced_error(QK, ratio);
+        ckks->evaluator.rescale_to_next_inplace(QK);
+        softmax_evaluator.softmax_128x128(QK, So);
+        mm_evaluator.matrix_mul_ct128x128_ct128x128_gt(So, V, QKV[i]);
     }
-    std::vector<PhantomCiphertext> attention_value(num_heads/4), attn_output;
+    std::vector<PhantomCiphertext> attn_weight(num_heads/4), attn_output;
     for (int i=0; i<num_heads/4; i++) {
-        ckks->evaluator.rotate_vector_inplace(QKV[2*i+1], MMEvaluator::slot_count/2, *(ckks->galois_keys));
-        ckks->evaluator.add(QKV[2*i], QKV[2*i+1], attention_value[i]);
+        ckks->evaluator.rotate_vector_inplace(QKV[2*i+1], slot_count/2, *(ckks->galois_keys));
+        ckks->evaluator.add(QKV[2*i], QKV[2*i+1], attn_weight[i]);
     }
-    mm_evaluator.matrix_mul_ct128x768_pt768x768(attention_value, Wo_packed, attn_output);
+    
+    mm_evaluator.matrix_mul_ct128x768_pt768x768(attn_weight, Wo_packed, attn_output);
     for (int i=0; i<3; i++) {
         auto bo_pt = CKKSEncode(Bo_packed[i], ckks, &attn_output[i]);
         ckks->evaluator.add_plain_inplace(attn_output[i], bo_pt);
+    }
+    return attn_output;
+}
+
+// Reference: https://discuss.pytorch.org/t/which-multihead-attention-implementation-is-correct/198996/2
+torch::Tensor BertAttention::forward(torch::Tensor x) {
+    TORCH_CHECK(x.sizes().size() == 2 || x.sizes().size() == 3, "x should have 2 or 3 dimensions, but the input has", x.sizes().size(), "dimensions");
+    bool no_batch_flag = (x.sizes().size() == 2);
+    if (no_batch_flag) {
+        x.unsqueeze_(0);
+    }
+
+    int batch_size = x.size(0);
+    int seq_len = x.size(1);
+    int embed_size = x.size(2);
+        
+    auto query = q_proj->forward(x).view({batch_size, seq_len, num_heads, head_dim}).transpose(1,2);
+    auto key = k_proj->forward(x).view({batch_size, seq_len, num_heads, head_dim}).transpose(1,2);
+    auto value = v_proj->forward(x).view({batch_size, seq_len, num_heads, head_dim}).transpose(1,2);
+
+    auto scores = torch::matmul(query, key.transpose(-2,-1))/ std::sqrt(head_dim);
+    // if mask is not None:
+    //     scores.masked_fill(mask==0, float("-inf"))
+    auto attn_weight = torch::softmax(scores, -1);
+    
+    auto attention = torch::matmul(attn_weight, value);
+    attention = attention.transpose(1,2).contiguous().view({batch_size, seq_len, embed_size});
+    auto attn_output = o_proj->forward(attention);
+
+    if (no_batch_flag) {
+        attn_output.squeeze_(0);
     }
     return attn_output;
 }

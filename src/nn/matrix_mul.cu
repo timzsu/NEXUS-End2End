@@ -8,7 +8,8 @@
 #include "ciphertext.h"
 #include "nn/matrix_mul.cuh"
 #include "nn/row_pack.h"
-#include "nn/ckks_wrapper.cuh"
+#include "nn/nexus_utility.cuh"
+#include "nn/constant.cuh"
 #include "utils.cuh"
 
 using namespace std;
@@ -573,32 +574,30 @@ void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, Phantom
   }
 }
 
-vector<double> dec(PhantomCiphertext ct, shared_ptr<CKKSEvaluator> ckks_evaluator) {
-    PhantomPlaintext pt;
-    ckks_evaluator->decryptor.decrypt(ct, pt);
-    vector<double> out;
-    ckks_evaluator->encoder.decode(pt, out);
-    return out;
-}
-
 void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
-  auto matrix1 = tensor_from_vector(dec(ct1, ckks), {128, 128});
-  auto matrix2 = tensor_from_vector(dec(ct2, ckks), {128, 128});
-  auto mm_res = torch::mm(matrix1, matrix2.transpose(0, 1));
-  for (int i = 0; i < mm_res.size(0); ++i) {
-    mm_res[i] = torch::roll(mm_res[i], -i, 0);
+  auto matrix1 = tensor_from_vector(CKKSDecrypt(ct1, ckks), {2, 128, 128});
+  auto matrix2 = tensor_from_vector(CKKSDecrypt(ct2, ckks), {2, 128, 128});
+  auto mm_res1 = torch::mm(matrix1.index({0}), matrix2.index({0}).transpose(0, 1));
+  auto mm_res2 = torch::mm(matrix1.index({1}), matrix2.index({1}).transpose(0, 1));
+  for (int i = 0; i < 128; ++i) {
+    mm_res1[i] = torch::roll(mm_res1[i], -i, 0);
+    mm_res2[i] = torch::roll(mm_res2[i], -i, 0);
   }
-  res = CKKSEncrypt(flatten_pack(mm_res), ckks);
+  res = CKKSEncrypt(flatten_pack(mm_res1, mm_res2), ckks);
   ckks->evaluator.mod_switch_to_inplace(res, ct1.chain_index() + 1);
 }
 
 void MMEvaluator::matrix_mul_ct128x128_ct128x128_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
-  auto matrix1 = tensor_from_vector(dec(ct1, ckks), {128, 128});
-  auto matrix2 = tensor_from_vector(dec(ct2, ckks), {128, 128});
-  for (int i = 0; i < matrix1.size(0); ++i) {
-    matrix1[i] = torch::roll(matrix1[i], i, 0);
+  auto matrix1 = tensor_from_vector(CKKSDecrypt(ct1, ckks), {2, 128, 128});
+  auto matrix2 = tensor_from_vector(CKKSDecrypt(ct2, ckks), {2, 128, 128});
+  for (int i = 0; i < 128; ++i) {
+    matrix1[0][i] = torch::roll(matrix1[0][i], i, 0);
+    matrix1[1][i] = torch::roll(matrix1[1][i], i, 0);
   }
-  auto mm_res = torch::mm(matrix1, matrix2);
-  res = CKKSEncrypt(flatten_pack(mm_res, torch::zeros({128, 128}, torch::kDouble)), ckks);
+  auto mm_res1 = torch::mm(matrix1[0], matrix2[0].slice(1, 0, 64));
+  auto mm_res2 = torch::mm(matrix1[1], matrix2[0].slice(1, 64, 128));
+  res = CKKSEncrypt(flatten_pack(
+    torch::cat({mm_res1, torch::zeros_like(mm_res1)}, 1), 
+    torch::cat({torch::zeros_like(mm_res2), mm_res2}, 1)), ckks);
   ckks->evaluator.mod_switch_to_inplace(res, ct1.chain_index() + 1);
 }

@@ -13,39 +13,27 @@ private:
     std::shared_ptr<CKKSEvaluator> ckks;
 
     static constexpr int num_heads = 12;
+    static constexpr int embed_dim = 768;
+    static constexpr int head_dim = embed_dim / num_heads;
+
+    torch::nn::Linear q_proj, k_proj, v_proj, o_proj;
 
     std::array<FlatVecArray, num_heads/2> Wq_packed, Wk_packed, Wv_packed;
     std::array<FlatVec, num_heads/2> Bq_packed, Bk_packed, Bv_packed;
     FlatVecMat Wo_packed;
     FlatVecArray Bo_packed;
 
-    torch::Tensor Wq, Wk, Wv, Wo;
-    torch::Tensor bq, bk, bv, bo;
-
 public:
-    BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks) {
-        Wq = torch::randn({768, 768}, torch::kDouble);
-        Wk = torch::randn({768, 768}, torch::kDouble);
-        Wv = torch::randn({768, 768}, torch::kDouble);
-        Wo = torch::randn({768, 768}, torch::kDouble);
-        bq = torch::randn({768}, torch::kDouble);
-        bk = torch::randn({768}, torch::kDouble);
-        bv = torch::randn({768}, torch::kDouble);
-        bo = torch::randn({768}, torch::kDouble);
-
-        register_parameter("weight_q", Wq, false);
-        register_parameter("weight_k", Wk, false);
-        register_parameter("weight_v", Wv, false);
-        register_parameter("weight_o", Wo, false);
-        register_parameter("bias_q", bq, false);
-        register_parameter("bias_k", bk, false);
-        register_parameter("bias_v", bv, false);
-        register_parameter("bias_o", bo, false);
-    }
+    BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks), 
+    q_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
+    k_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
+    v_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
+    o_proj(torch::nn::LinearOptions(embed_dim, embed_dim)) {}
 
     void pack_weights();
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x);
+    torch::Tensor forward(torch::Tensor x);
 };
 
 }

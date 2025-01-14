@@ -67,7 +67,6 @@ class MMEvaluator {
   void multiply_power_of_x(PhantomCiphertext &encrypted, PhantomCiphertext &destination, int index);
 
   // NEXUS-specific function
-  static constexpr size_t slot_count = 32768;
   /*
   Two simutaneous ct-pt multiplications with 128x128 matrices. 
   @Syntax: ct = ct1 | ct2, pt = pt1 | pt2 -> ct1 * pt1 | ct2 * pt2

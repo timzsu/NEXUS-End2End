@@ -15,5 +15,6 @@ class SoftmaxEvaluator {
   SoftmaxEvaluator(std::shared_ptr<CKKSEvaluator> ckks) : ckks(ckks) {}
 
   void softmax(PhantomCiphertext &x, PhantomCiphertext &res, int len);
+  void softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &res);
 };
 }  // namespace nexus

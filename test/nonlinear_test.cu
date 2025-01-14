@@ -1,4 +1,4 @@
-#include "nn/ckks_wrapper.cuh"
+#include "nn/nexus_utility.cuh"
 #include "nn/row_pack.h"
 
 #include "nn/softmax.cuh"
@@ -52,10 +52,12 @@ TEST_CASE("Non-linear Operations") {
         SoftmaxEvaluator softmax_evaluator(ckks_evaluator);
 
         torch::Tensor matrix_A = random_tensor({128, 128}, -1, 1);
+        torch::Tensor matrix_B = random_tensor({128, 128}, -1, 1);
         matrix_A -= std::get<0>(matrix_A.max(1, true));
-        torch::Tensor matrix_res = torch::softmax(matrix_A, 1);
+        torch::Tensor matrix_res_A = torch::softmax(matrix_A, 1);
+        torch::Tensor matrix_res_B = torch::softmax(matrix_B, 1);
 
-        PhantomCiphertext ct_matrix = CKKSEncrypt(vector_from_tensor(torch::concat({matrix_A, torch::zeros_like(matrix_A)}, 1)), ckks_evaluator);
+        PhantomCiphertext ct_matrix = CKKSEncrypt(flatten_pack(matrix_A, matrix_B), ckks_evaluator);
         torch::cuda::synchronize();
         BENCHMARK("softmax") {
             PhantomCiphertext res, input_copy = ct_matrix;
@@ -63,11 +65,12 @@ TEST_CASE("Non-linear Operations") {
             torch::cuda::synchronize();
         };
         PhantomCiphertext res;
-        softmax_evaluator.softmax(ct_matrix, res, 128);
+        softmax_evaluator.softmax_128x128(ct_matrix, res);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
-        torch::Tensor tensor_res = tensor_from_vector(mm_res, {128, 256});
+        torch::Tensor tensor_res = tensor_from_vector(mm_res, {2, 128, 128});
 
-        REQUIRE(torch::allclose(tensor_res.slice(1, 0, 128), matrix_res, MAX_RTOL, MAX_ATOL));
+        REQUIRE(torch::allclose(tensor_res[0], matrix_res_A, MAX_RTOL, MAX_ATOL));
+        REQUIRE(torch::allclose(tensor_res[1], matrix_res_B, MAX_RTOL, MAX_ATOL));
     }
 
     SECTION("GELU") {
