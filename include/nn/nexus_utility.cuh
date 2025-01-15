@@ -2,8 +2,31 @@
 
 #include "ckks_evaluator.cuh"
 #include <precompiled/torch_includes.h>
+#include "nn/constant.cuh"
 
 namespace nexus {
+
+inline PhantomCiphertext quick_sum(const PhantomCiphertext& x, std::shared_ptr<CKKSEvaluator> ckks, int len) {
+    PhantomCiphertext tmp = x, res;
+    std::vector<double> mask(slot_count, 0);
+    for (int i=0; i<slot_count; i+=128) {
+        mask[i] = 1;
+    }
+    for (int i = 0; i < std::log2(len); ++i) {
+        ckks->evaluator.rotate_vector(tmp, pow(2, i), *ckks->galois_keys, res);
+        ckks->evaluator.add_inplace(res, tmp);
+        tmp = res;
+    }
+    ckks->evaluator.multiply_vector_inplace_reduced_error(res, mask);
+    ckks->evaluator.rescale_to_next_inplace(res);
+    tmp = res;
+    for (int i = 0; i < std::log2(len); ++i) {
+        ckks->evaluator.rotate_vector(tmp, -pow(2, i), *ckks->galois_keys, res);
+        ckks->evaluator.add_inplace(res, tmp);
+        tmp = res;
+    }
+    return res;
+}
 
 inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr) {
     PhantomPlaintext pt;

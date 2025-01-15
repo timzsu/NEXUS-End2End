@@ -18,7 +18,7 @@ using namespace nexus;
 
 size_t N = 1ULL << 16;
 double SCALE = pow(2.0, 40);
-size_t L = 18;
+size_t L = 21;
 constexpr double MAX_RTOL=1e-3;
 constexpr double MAX_ATOL=1e-2;
 
@@ -61,7 +61,7 @@ TEST_CASE("Non-linear Operations") {
         torch::cuda::synchronize();
         BENCHMARK("softmax") {
             PhantomCiphertext res, input_copy = ct_matrix;
-            softmax_evaluator.softmax(input_copy, res, 128);
+            softmax_evaluator.softmax_128x128(ct_matrix, res);
             torch::cuda::synchronize();
         };
         PhantomCiphertext res;
@@ -116,6 +116,37 @@ TEST_CASE("Non-linear Operations") {
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {16, 2048});
 
         REQUIRE(torch::allclose(tensor_res.slice(1, 0, 768), matrix_res, MAX_RTOL, MAX_ATOL));
+
+    }
+
+    SECTION("Layer Norm 128x128") {
+        LNEvaluator ln_evaluator(ckks_evaluator);
+
+        torch::Tensor matrix_A = random_tensor({128, 768}, -3, 3);
+        torch::Tensor matrix_res = torch::layer_norm(matrix_A, 768);
+        auto packed_A = row_pack_128x768(matrix_A);
+        vector<PhantomCiphertext> ct_matrix{
+            CKKSEncrypt(packed_A[0], ckks_evaluator),
+            CKKSEncrypt(packed_A[1], ckks_evaluator),
+            CKKSEncrypt(packed_A[2], ckks_evaluator),
+        };
+
+        torch::cuda::synchronize();
+        BENCHMARK("layer_norm") {
+            std::vector<PhantomCiphertext> res;
+            ln_evaluator.layer_norm_128x768(ct_matrix, res);
+            torch::cuda::synchronize();
+        };
+        std::vector<PhantomCiphertext> res;
+        ln_evaluator.layer_norm_128x768(ct_matrix, res);
+        torch::Tensor mm_result = torch::zeros({128, 768}, torch::kDouble);
+        for (int i = 0; i < 3; i++) {
+            auto mm_res = CKKSDecrypt(res[i], ckks_evaluator);
+            mm_result.slice(1, i * 256, i * 256 + 128) = torch::from_blob(mm_res.data(), {128, 128}, torch::kDouble).clone();
+            mm_result.slice(1, i * 256 + 128, i * 256 + 256) = torch::from_blob(mm_res.data() + 128 * 128, {128, 128}, torch::kDouble).clone();
+        }
+
+        REQUIRE(torch::allclose(mm_result, matrix_res, MAX_RTOL, MAX_ATOL));
 
     }
 }
@@ -239,6 +270,7 @@ TEST_CASE("Argmax") {
     auto pred = tensor_res.index({0}).slice(0, 0, argmax_input_size);
     auto gt = output_tensor.slice(0, 0, argmax_input_size);
 
+    cout << gt << endl << pred << endl;
     REQUIRE(torch::allclose(gt, pred, 5e-2, 5e-2));
 
     BENCHMARK("argmax") {

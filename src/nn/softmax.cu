@@ -1,5 +1,5 @@
 #include "nn/softmax.cuh"
-#include "nn/constant.cuh"
+#include "nn/nexus_utility.cuh"
 
 using namespace nexus;
 
@@ -43,28 +43,9 @@ void SoftmaxEvaluator::softmax(PhantomCiphertext &x, PhantomCiphertext &res, int
 void SoftmaxEvaluator::softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &res) {
   PhantomCiphertext tmp, exp_x;
 
-  constexpr int log_step = 7;
-  std::vector<double> mask(slot_count, 0);
-  for (int i=0; i<slot_count; i+=128) {
-    mask[i] = 1;
-  }
-
   exp_x = ckks->exp(x);
 
-  tmp = exp_x;
-  for (int i = 0; i < log_step; ++i) {
-    ckks->evaluator.rotate_vector(tmp, pow(2, i), *ckks->galois_keys, res);
-    ckks->evaluator.add_inplace(res, tmp);
-    tmp = res;
-  }
-  ckks->evaluator.multiply_vector_inplace_reduced_error(res, mask);
-  ckks->evaluator.rescale_to_next_inplace(res);
-  tmp = res;
-  for (int i = 0; i < log_step; ++i) {
-    ckks->evaluator.rotate_vector(tmp, -pow(2, i), *ckks->galois_keys, res);
-    ckks->evaluator.add_inplace(res, tmp);
-    tmp = res;
-  }
+  res = quick_sum(exp_x, ckks, 128);
 
   // Normalize res/delta to [0, 1]
   PhantomPlaintext delta;
