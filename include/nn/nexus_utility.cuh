@@ -3,6 +3,7 @@
 #include "ckks_evaluator.cuh"
 #include <precompiled/torch_includes.h>
 #include "nn/constant.cuh"
+#include "nn/row_pack.h"
 
 namespace nexus {
 
@@ -38,10 +39,13 @@ inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator
     return pt;
 }
 
-inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator) {
+inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, int chain_index=boot_level+1) {
     PhantomCiphertext out;
     auto pt = CKKSEncode(data, ckks_evaluator);
     ckks_evaluator->encryptor.encrypt(pt, out);
+    if (chain_index > 1) {
+        ckks_evaluator->evaluator.mod_switch_to_inplace(out, chain_index);
+    }
     return out;
 }
 
@@ -64,6 +68,16 @@ inline void show(torch::Tensor x, torch::IntArrayRef boundary, std::string prefi
         indices.push_back(torch::indexing::Slice(0, b));
     }
     cerr << prefix << ": " << x.index(indices) << endl;
+}
+
+inline torch::Tensor tensor_from_ciphertexts(std::vector<PhantomCiphertext>& ciphertexts, std::shared_ptr<CKKSEvaluator> ckks_evaluator) {
+    std::vector<torch::Tensor> decrypted_out;
+    for (auto &o : ciphertexts) {
+        auto tensor_out = tensor_from_vector(CKKSDecrypt(o, ckks_evaluator), {2, 128, 128});
+        decrypted_out.push_back(tensor_out.index({0}));
+        decrypted_out.push_back(tensor_out.index({1}));
+    }
+    return torch::concat(decrypted_out, -1);
 }
 
 }  // namespace nexus

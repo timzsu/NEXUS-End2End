@@ -5,6 +5,7 @@
 #include "nn/gelu.cuh"
 #include "nn/layer_norm.cuh"
 #include "nn/argmax.cuh"
+#include "nn/params.cuh"
 
 #include <precompiled/catch2_includes.h>
 #include <precompiled/torch_includes.h>
@@ -28,25 +29,7 @@ torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
 
 TEST_CASE("Non-linear Operations") {
     
-    EncryptionParameters parms(scheme_type::ckks);
-    
-    vector<int> coeff_modulus{60};
-    for (int i=0; i<L; i++)
-        coeff_modulus.push_back(40);
-    coeff_modulus.push_back(60);
-
-    parms.set_poly_modulus_degree(N);
-    parms.set_coeff_modulus(CoeffModulus::Create(N, coeff_modulus));
-
-    auto context = make_shared<PhantomContext>(parms);
-    auto secret_key = make_shared<PhantomSecretKey>(*context);
-    auto public_key = make_shared<PhantomPublicKey>(secret_key->gen_publickey(*context));
-    auto relin_keys = make_shared<PhantomRelinKey>(secret_key->gen_relinkey(*context));
-    auto galois_keys = make_shared<PhantomGaloisKey>(secret_key->create_galois_keys(*context));
-
-    auto encoder = make_shared<PhantomCKKSEncoder>(*context);
-
-    auto ckks_evaluator = make_shared<CKKSEvaluator>(context, public_key, secret_key, encoder, relin_keys, galois_keys, SCALE);
+    auto ckks_evaluator = setup();
 
     SECTION("Softmax") {
         SoftmaxEvaluator softmax_evaluator(ckks_evaluator);
@@ -119,7 +102,7 @@ TEST_CASE("Non-linear Operations") {
 
     }
 
-    SECTION("Layer Norm 128x128") {
+    SECTION("Layer Norm 128x768") {
         LNEvaluator ln_evaluator(ckks_evaluator);
 
         torch::Tensor matrix_A = random_tensor({128, 768}, -3, 3);
@@ -139,14 +122,10 @@ TEST_CASE("Non-linear Operations") {
         };
         std::vector<PhantomCiphertext> res;
         ln_evaluator.layer_norm_128x768(ct_matrix, res);
-        torch::Tensor mm_result = torch::zeros({128, 768}, torch::kDouble);
-        for (int i = 0; i < 3; i++) {
-            auto mm_res = CKKSDecrypt(res[i], ckks_evaluator);
-            mm_result.slice(1, i * 256, i * 256 + 128) = torch::from_blob(mm_res.data(), {128, 128}, torch::kDouble).clone();
-            mm_result.slice(1, i * 256 + 128, i * 256 + 256) = torch::from_blob(mm_res.data() + 128 * 128, {128, 128}, torch::kDouble).clone();
-        }
 
-        REQUIRE(torch::allclose(mm_result, matrix_res, MAX_RTOL, MAX_ATOL));
+        torch::Tensor output = tensor_from_ciphertexts(res, ckks_evaluator);
+
+        REQUIRE(torch::allclose(output, matrix_res, MAX_RTOL, MAX_ATOL));
 
     }
 }

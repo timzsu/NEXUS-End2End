@@ -28,7 +28,9 @@ public:
     q_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
     k_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
     v_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
-    o_proj(torch::nn::LinearOptions(embed_dim, embed_dim)) {}
+    o_proj(torch::nn::LinearOptions(embed_dim, embed_dim)) {
+        torch::nn::init::uniform_(o_proj->weight, -5, 5);
+    }
 
     void pack_weights();
 

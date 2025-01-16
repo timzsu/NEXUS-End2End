@@ -26,7 +26,9 @@ public:
     BertMLP(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), gelu_evaluator(ckks), ckks(ckks), 
         up_proj(torch::nn::LinearOptions(hidden_dim, hidden_dim*expansion_factor)), 
         down_proj(torch::nn::LinearOptions(hidden_dim*expansion_factor, hidden_dim)),
-        gelu(torch::nn::GELUOptions()) {}
+        gelu(torch::nn::GELUOptions()) {
+            torch::nn::init::uniform_(down_proj->weight, -1, 1);
+        }
 
     void pack_weights();
 

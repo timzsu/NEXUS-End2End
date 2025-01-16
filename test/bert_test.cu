@@ -1,5 +1,6 @@
 #include "bert/bert.cuh"
 #include "nn/nexus_utility.cuh"
+#include "nn/params.cuh"
 
 #include <precompiled/catch2_includes.h>
 
@@ -17,27 +18,7 @@ torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
 }
 
 TEST_CASE("BERT Components") {
-    auto poly_modulus_degree = 1ULL << 16;
-    double scale = pow(2.0, 40);
-    EncryptionParameters parms(scheme_type::ckks);
-    
-    vector<int> coeff_modulus{60};
-    for (int i=0; i<22; i++)
-        coeff_modulus.push_back(40);
-    coeff_modulus.push_back(60);
-
-    parms.set_poly_modulus_degree(poly_modulus_degree);
-    parms.set_coeff_modulus(CoeffModulus::Create(poly_modulus_degree, coeff_modulus));
-
-    auto context = std::make_shared<PhantomContext>(parms);
-    auto secret_key = std::make_shared<PhantomSecretKey>(*context);
-    auto public_key = std::make_shared<PhantomPublicKey>(secret_key->gen_publickey(*context));
-    auto relin_keys = std::make_shared<PhantomRelinKey>(secret_key->gen_relinkey(*context));
-    auto galois_keys = std::make_shared<PhantomGaloisKey>(secret_key->create_galois_keys(*context));
-
-    auto encoder = std::make_shared<PhantomCKKSEncoder>(*context);
-
-    auto ckks_evaluator = std::make_shared<CKKSEvaluator>(context, public_key, secret_key, encoder, relin_keys, galois_keys, scale);
+    auto ckks_evaluator = setup();
 
     SECTION("Attention") {
         BertAttention attention(ckks_evaluator);
@@ -53,15 +34,15 @@ TEST_CASE("BERT Components") {
 
         attention.pack_weights();
 
+        torch::cuda::synchronize();
+        BENCHMARK("forward") {
+            std::vector<PhantomCiphertext> res, input_copy = input_ct;
+            auto out = attention.forward(input_ct);
+            torch::cuda::synchronize();
+        };
         auto out = attention.forward(input_ct);
 
-        std::vector<torch::Tensor> decrypted_out;
-        for (auto &o : out) {
-            auto tensor_out = tensor_from_vector(CKKSDecrypt(o, ckks_evaluator), {2, 128, 128});
-            decrypted_out.push_back(tensor_out.index({0}));
-            decrypted_out.push_back(tensor_out.index({1}));
-        }
-        torch::Tensor attn_output = torch::concat(decrypted_out, -1);
+        torch::Tensor attn_output = tensor_from_ciphertexts(out, ckks_evaluator);
 
         CHECK(torch::allclose(attn_output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
     }
@@ -80,16 +61,46 @@ TEST_CASE("BERT Components") {
 
         mlp.pack_weights();
 
+        torch::cuda::synchronize();
+        BENCHMARK("forward") {
+            std::vector<PhantomCiphertext> res, input_copy = input_ct;
+            auto out = mlp.forward(input_ct);
+            torch::cuda::synchronize();
+        };
         auto out = mlp.forward(input_ct);
 
-        std::vector<torch::Tensor> decrypted_out;
-        for (auto &o : out) {
-            auto tensor_out = tensor_from_vector(CKKSDecrypt(o, ckks_evaluator), {2, 128, 128});
-            decrypted_out.push_back(tensor_out.index({0}));
-            decrypted_out.push_back(tensor_out.index({1}));
-        }
-        torch::Tensor output = torch::concat(decrypted_out, -1);
+        torch::Tensor output = tensor_from_ciphertexts(out, ckks_evaluator);
 
         CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
     }
+}
+
+TEST_CASE("BERT Layer") {
+
+    auto ckks_evaluator = setup();
+
+    BertLayer bert_layer(ckks_evaluator, nullptr);
+
+    torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
+    auto gt_output = bert_layer.forward(input.to(torch::kFloat));
+
+    auto packed_input = row_pack_128x768(input);
+    std::vector<PhantomCiphertext> input_ct;
+    for (auto &inp : packed_input) {
+        input_ct.push_back(CKKSEncrypt(inp, ckks_evaluator));
+    }
+
+    bert_layer.pack_weights();
+
+    torch::cuda::synchronize();
+    BENCHMARK("forward") {
+        std::vector<PhantomCiphertext> res, input_copy = input_ct;
+        auto out = bert_layer.forward(input_ct);
+        torch::cuda::synchronize();
+    };
+    auto out = bert_layer.forward(input_ct);
+
+    torch::Tensor output = tensor_from_ciphertexts(out, ckks_evaluator);
+
+    CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
 }

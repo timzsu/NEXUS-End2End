@@ -1,6 +1,7 @@
 #include "nn/matrix_mul.cuh"
 #include "nn/nexus_utility.cuh"
 #include "nn/row_pack.h"
+#include "nn/params.cuh"
 #include "torch/cuda.h"
 
 #include <precompiled/catch2_includes.h>
@@ -14,33 +15,12 @@ using namespace phantom::util;
 using namespace nexus;
 
 
-size_t N = 1ULL << 16;
-double SCALE = pow(2.0, 40);
-size_t L = 8;
 constexpr double MAX_RTOL=1e-3;
 constexpr double MAX_ATOL=1e-3;
 
 TEST_CASE("Matrix Multiplication") {
     
-    EncryptionParameters parms(scheme_type::ckks);
-    
-    vector<int> TEST_COEFF_MODULI{60};
-    for (int i=0; i<L; i++)
-        TEST_COEFF_MODULI.push_back(40);
-    TEST_COEFF_MODULI.push_back(60);
-
-    parms.set_poly_modulus_degree(N);
-    parms.set_coeff_modulus(CoeffModulus::Create(N, TEST_COEFF_MODULI));
-
-    auto context = make_shared<PhantomContext>(parms);
-    auto secret_key = make_shared<PhantomSecretKey>(*context);
-    auto public_key = make_shared<PhantomPublicKey>(secret_key->gen_publickey(*context));
-    auto relin_keys = make_shared<PhantomRelinKey>(secret_key->gen_relinkey(*context));
-    auto galois_keys = make_shared<PhantomGaloisKey>(secret_key->create_galois_keys(*context));
-
-    auto encoder = make_shared<PhantomCKKSEncoder>(*context);
-
-    auto ckks_evaluator = make_shared<CKKSEvaluator>(context, public_key, secret_key, encoder, relin_keys, galois_keys, SCALE);
+    auto ckks_evaluator = setup();
 
     MMEvaluator mme(ckks_evaluator);
 
