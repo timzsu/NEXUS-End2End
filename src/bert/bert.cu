@@ -18,24 +18,23 @@ void BertLayer::bootstrap(PhantomCiphertext &x) {
   x = rtn;
 }
 
-void BertLayer::bootstrap_insecure(std::vector<PhantomCiphertext>& ct_vec) {
-  for (auto& ct: ct_vec) {
-    auto pt = CKKSDecrypt(ct, ckks);
-    ct = CKKSEncrypt(pt, ckks);
+void BertLayer::bootstrap(std::vector<PhantomCiphertext> &x) {
+  for (auto& ct : x) {
+    bootstrap(ct);
   }
 }
 
 std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x) {
     auto attn_output = self_attention.forward(x);
-    bootstrap_insecure(attn_output);
+    bootstrap(attn_output);
     std::vector<PhantomCiphertext> attn_output_normalized;
     ln_evaluator.layer_norm_128x768(attn_output, attn_output_normalized);
-    bootstrap_insecure(attn_output_normalized);
+    bootstrap(attn_output_normalized);
     auto mlp_output = mlp.forward(attn_output_normalized);
-    bootstrap_insecure(mlp_output);
+    bootstrap(mlp_output);
     std::vector<PhantomCiphertext> mlp_output_normalized;
     ln_evaluator.layer_norm_128x768(mlp_output, mlp_output_normalized);
-    bootstrap_insecure(mlp_output_normalized);
+    bootstrap(mlp_output_normalized);
     return mlp_output_normalized;
 }
 

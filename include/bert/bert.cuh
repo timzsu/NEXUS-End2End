@@ -22,7 +22,7 @@ public:
     void pack_weights();
 
     void bootstrap(PhantomCiphertext &x);
-    void bootstrap_insecure(std::vector<PhantomCiphertext> &ct_vec);
+    void bootstrap(std::vector<PhantomCiphertext> &x);
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x);
     torch::Tensor forward(torch::Tensor x);

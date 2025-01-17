@@ -41,7 +41,7 @@ auto setup() {
         long loge = 10;
         auto bootstrapper = std::make_shared<Bootstrapper>(
             loge,
-            logN,
+            logN - 1,
             logN - 1,
             total_level,
             scale,
@@ -65,10 +65,6 @@ auto setup() {
         bootstrapper->addLeftRotKeys_Linear_to_vector_3(gal_steps_vector);
 
         std::cout << "[Bootstrap Setup (3/4)] Generating Galois keys from steps vector." << endl;
-        // for (int i = 0; i < logN - 1; i++) {
-        //     gal_steps_vector.push_back(-(1 << i));
-        // }
-        // ckks_evaluator->decryptor.create_galois_keys_from_steps(gal_steps_vector, *(ckks_evaluator->galois_keys));
         bootstrapper->slot_vec.push_back(logN - 1);
 
         cout << "[Bootstrap Setup (4/4)] Generating Linear Transformation Coefficients..." << endl;

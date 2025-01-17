@@ -77,9 +77,9 @@ TEST_CASE("BERT Components") {
 
 TEST_CASE("BERT Layer") {
 
-    auto ckks_evaluator = setup();
+    auto [ckks_evaluator, bootstrapper] = setup<true>();
 
-    BertLayer bert_layer(ckks_evaluator, nullptr);
+    BertLayer bert_layer(ckks_evaluator, bootstrapper);
 
     torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
     auto gt_output = bert_layer.forward(input.to(torch::kFloat));
