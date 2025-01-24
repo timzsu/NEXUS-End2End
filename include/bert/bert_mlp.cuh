@@ -1,6 +1,7 @@
 #include "nn/matrix_mul.cuh"
 #include "nn/gelu.cuh"
 #include "nn/row_pack.h"
+#include "utils.cuh"
 
 #include "ckks_evaluator.cuh"
 
@@ -22,6 +23,8 @@ private:
     std::array<FlatVecArray, expansion_factor * hidden_dim> B_up_packed;
     FlatVecArray B_down_packed;
 
+    Timer up_proj_timer, gelu_timer, down_proj_timer;
+
 public:
     BertMLP(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), gelu_evaluator(ckks), ckks(ckks), 
         up_proj(torch::nn::LinearOptions(hidden_dim, hidden_dim*expansion_factor)), 
@@ -39,6 +42,12 @@ public:
         out = down_proj->forward(out);
         out += x;
         return out;
+    }
+
+    void print_time() {
+        cout << "up_proj takes " << up_proj_timer.duration() << "ms" << endl;
+        cout << "gelu takes " << gelu_timer.duration() << "ms" << endl;
+        cout << "down projection takes " << down_proj_timer.duration() << "ms" << endl;
     }
 };
 

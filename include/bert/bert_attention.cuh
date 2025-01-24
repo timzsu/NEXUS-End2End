@@ -1,6 +1,7 @@
 #include "nn/matrix_mul.cuh"
 #include "nn/softmax.cuh"
 #include "nn/row_pack.h"
+#include "utils.cuh"
 
 #include "ckks_evaluator.cuh"
 
@@ -23,6 +24,9 @@ private:
     FlatVecMat Wo_packed;
     FlatVecArray Bo_packed;
 
+    long qkv_proj_time=0, qk_time=0, softmax_time=0, qkv_time=0;
+    Timer o_proj_timer;
+
 public:
     BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks), 
     q_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
@@ -36,6 +40,14 @@ public:
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x);
     torch::Tensor forward(torch::Tensor x);
+
+    void print_time() {
+        cout << "qkv projection takes " << qkv_proj_time << "ms" << endl;
+        cout << "q * k^T takes " << qk_time << "ms" << endl;
+        cout << "softmax takes " << softmax_time << "ms" << endl;
+        cout << "qk^T * v takes " << qkv_time << "ms" << endl;
+        cout << "out projection takes " << o_proj_timer.duration() << "ms" << endl;
+    }
 };
 
 }

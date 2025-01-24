@@ -41,8 +41,10 @@ void BertAttention::pack_weights() {
 
 std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>& x) {
     // Implement the forward pass for self-attention here
+    Timer timer;
     std::array<PhantomCiphertext, num_heads/2> QKV;
     for (int i=0; i<num_heads/2; i++) {
+        timer.start();
         PhantomCiphertext Q, K, V;
         mm_evaluator.matrix_mul_ct128x768_pt768x64x2(x, Wq_packed[i], Q);
         mm_evaluator.matrix_mul_ct128x768_pt768x64x2(x, Wk_packed[i], K);
@@ -53,14 +55,29 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
         ckks->evaluator.add_plain_inplace(K, bk_pt);
         PhantomPlaintext bv_pt = CKKSEncode(Bv_packed[i], ckks, &V);
         ckks->evaluator.add_plain_inplace(V, bv_pt);
+        torch::cuda::synchronize();
+        timer.stop();
+        qkv_proj_time += timer.duration();
         
+        timer.start();
         PhantomCiphertext QK, So;
-        mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose_gt(Q, K, QK);
+        mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose(Q, K, QK);
         std::vector<double> ratio(slot_count, 1./std::sqrt(head_dim));
         ckks->evaluator.multiply_vector_inplace_reduced_error(QK, ratio);
         ckks->evaluator.rescale_to_next_inplace(QK);
+        torch::cuda::synchronize();
+        timer.stop();
+        qk_time += timer.duration();
+        timer.start();
         softmax_evaluator.softmax_128x128(QK, So);
-        mm_evaluator.matrix_mul_ct128x128_ct128x128_gt(So, V, QKV[i]);
+        torch::cuda::synchronize();
+        timer.stop();
+        softmax_time += timer.duration();
+        timer.start();
+        mm_evaluator.matrix_mul_ct128x128_ct128x128(So, V, QKV[i]);
+        torch::cuda::synchronize();
+        timer.stop();
+        qkv_time += timer.duration();
     }
     std::vector<PhantomCiphertext> attn_weight(num_heads/4), attn_output;
     for (int i=0; i<num_heads/4; i++) {
@@ -68,11 +85,15 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
         ckks->evaluator.add(QKV[2*i], QKV[2*i+1], attn_weight[i]);
     }
     
+    torch::cuda::synchronize();
+    o_proj_timer.start();
     mm_evaluator.matrix_mul_ct128x768_pt768x768(attn_weight, Wo_packed, attn_output);
     for (int i=0; i<3; i++) {
         auto bo_pt = CKKSEncode(Bo_packed[i], ckks, &attn_output[i]);
         ckks->evaluator.add_plain_inplace(attn_output[i], bo_pt);
     }
+    torch::cuda::synchronize();
+    o_proj_timer.stop();
     return attn_output;
 }
 

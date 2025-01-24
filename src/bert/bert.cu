@@ -26,15 +26,35 @@ void BertLayer::bootstrap(std::vector<PhantomCiphertext> &x) {
 
 std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x) {
     auto attn_output = self_attention.forward(x);
+    torch::cuda::synchronize();
+    bootstrap1_timer.start();
     bootstrap(attn_output);
+    torch::cuda::synchronize();
+    bootstrap1_timer.stop();
+    layer_norm1_timer.start();
     std::vector<PhantomCiphertext> attn_output_normalized;
     ln_evaluator.layer_norm_128x768(attn_output, attn_output_normalized);
+    torch::cuda::synchronize();
+    layer_norm1_timer.stop();
+    bootstrap2_timer.start();
     bootstrap(attn_output_normalized);
+    torch::cuda::synchronize();
+    bootstrap2_timer.stop();
     auto mlp_output = mlp.forward(attn_output_normalized);
+    torch::cuda::synchronize();
+    bootstrap3_timer.start();
     bootstrap(mlp_output);
+    torch::cuda::synchronize();
+    bootstrap3_timer.stop();
+    layer_norm2_timer.start();
     std::vector<PhantomCiphertext> mlp_output_normalized;
     ln_evaluator.layer_norm_128x768(mlp_output, mlp_output_normalized);
+    torch::cuda::synchronize();
+    layer_norm2_timer.stop();
+    bootstrap4_timer.start();
     bootstrap(mlp_output_normalized);
+    torch::cuda::synchronize();
+    bootstrap4_timer.stop();
     return mlp_output_normalized;
 }
 
