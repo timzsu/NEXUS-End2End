@@ -117,14 +117,14 @@ TEST_CASE("Matrix Multiplication") {
         auto ct3 = CKKSEncrypt(flatten_pack(matrix3), ckks_evaluator);
 
         PhantomCiphertext res1, res2;
-        mme.matrix_mul_ct128x64_ct128x64_transpose_gt(ct1, ct2, res1);
-        CHECK(res1.chain_index() == ct1.chain_index() + 1);
+        mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);
+        CHECK(res1.chain_index() == ct1.chain_index() + 3);
         auto mm_res1 = tensor_from_vector(CKKSDecrypt(res1, ckks_evaluator), {2, 128, 128});
 
         REQUIRE(torch::allclose(mm_res1[0], matrix_intermediate_A, MAX_RTOL, MAX_ATOL));
         REQUIRE(torch::allclose(mm_res1[1], matrix_intermediate_B, MAX_RTOL, MAX_ATOL));
 
-        mme.matrix_mul_ct128x128_ct128x128_gt(res1, ct3, res2);
+        mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
         CHECK(res2.chain_index() == res1.chain_index() + 1);
         auto mm_res2 = tensor_from_vector(CKKSDecrypt(res2, ckks_evaluator), {2, 128, 128});
 
@@ -133,13 +133,13 @@ TEST_CASE("Matrix Multiplication") {
 
         torch::cuda::synchronize();
         BENCHMARK("matmul1") {
-            mme.matrix_mul_ct128x64_ct128x64_transpose_gt(ct1, ct2, res1);  
+            mme.matrix_mul_ct128x64_ct128x64_transpose(ct1, ct2, res1);  
             torch::cuda::synchronize();
         };
         
         torch::cuda::synchronize();
         BENCHMARK("matmul2") {
-            mme.matrix_mul_ct128x128_ct128x128_gt(res1, ct3, res2);
+            mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
             torch::cuda::synchronize();
         };
     }

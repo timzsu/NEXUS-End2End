@@ -49,6 +49,7 @@ TEST_CASE("Non-linear Operations") {
         };
         PhantomCiphertext res;
         softmax_evaluator.softmax_128x128(ct_matrix, res);
+        CHECK(res.chain_index() == ct_matrix.chain_index() + 17);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {2, 128, 128});
 
@@ -70,7 +71,9 @@ TEST_CASE("Non-linear Operations") {
             torch::cuda::synchronize();
         };
         PhantomCiphertext res;
+        auto original_chain_index = ct_matrix.chain_index();
         gelu_evaluator.gelu(ct_matrix, res);
+        CHECK(res.chain_index() == original_chain_index + 18);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {128, 256});
 
@@ -94,7 +97,9 @@ TEST_CASE("Non-linear Operations") {
             torch::cuda::synchronize();
         };
         PhantomCiphertext res;
+        auto original_chain_index = ct_matrix.chain_index();
         ln_evaluator.layer_norm(ct_matrix, res, 1024);
+        CHECK(res.chain_index() == original_chain_index + 18);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {16, 2048});
 
@@ -122,6 +127,7 @@ TEST_CASE("Non-linear Operations") {
         };
         std::vector<PhantomCiphertext> res;
         ln_evaluator.layer_norm_128x768(ct_matrix, res);
+        CHECK(res[0].chain_index() == ct_matrix[0].chain_index() + 21);
 
         torch::Tensor output = tensor_from_ciphertexts(res, ckks_evaluator);
 
