@@ -4,7 +4,8 @@ add_library(NEXUS_NN SHARED
     layer_norm.cu 
     matrix_mul.cu
     row_pack.cpp
-    softmax.cu    
+    pt_pack.cu
+    softmax.cu
 )
 target_include_directories(NEXUS_NN
   PUBLIC

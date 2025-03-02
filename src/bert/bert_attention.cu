@@ -28,14 +28,14 @@ void BertAttention::pack_weights() {
     std::vector<std::pair<int, int>> orders{{0,3},{2,1},{4,7},{6,5},{8,11},{10,9}};
     for (int i=0; i<num_heads/2; i++) {
         auto& [lhs, rhs] = orders[i];
-        Wq_packed[i] = row_pack_768x64x2(Wq.slice(1, lhs*64, (lhs+1)*64), Wq.slice(1, rhs*64, (rhs+1)*64));
-        Wk_packed[i] = row_pack_768x64x2(Wk.slice(1, lhs*64, (lhs+1)*64), Wk.slice(1, rhs*64, (rhs+1)*64));
-        Wv_packed[i] = row_pack_768x128(torch::concat({Wv.slice(1, lhs*64, (lhs+1)*64), Wv.slice(1, rhs*64, (rhs+1)*64)}, 1));
+        Wq_packed[i] = pt_pack_1d<6>(row_pack_768x64x2(Wq.slice(1, lhs*64, (lhs+1)*64), Wq.slice(1, rhs*64, (rhs+1)*64)), ckks);
+        Wk_packed[i] = pt_pack_1d<6>(row_pack_768x64x2(Wk.slice(1, lhs*64, (lhs+1)*64), Wk.slice(1, rhs*64, (rhs+1)*64)), ckks);
+        Wv_packed[i] = pt_pack_1d<3>(row_pack_768x128(torch::concat({Wv.slice(1, lhs*64, (lhs+1)*64), Wv.slice(1, rhs*64, (rhs+1)*64)}, 1)), ckks);
         Bq_packed[i] = row_pack_64x1x2(bq.slice(0, lhs*64, (lhs+1)*64), bq.slice(0, rhs*64, (rhs+1)*64));
         Bk_packed[i] = row_pack_64x1x2(bk.slice(0, lhs*64, (lhs+1)*64), bk.slice(0, rhs*64, (rhs+1)*64));
         Bv_packed[i] = row_pack_128x1(torch::concat({bv.slice(0, lhs*64, (lhs+1)*64), bv.slice(0, rhs*64, (rhs+1)*64)}, 0));
     }
-    Wo_packed = row_pack_768x768(Wo);
+    Wo_packed = pt_pack_2d<3, 6>(row_pack_768x768(Wo), ckks);
     Bo_packed = row_pack_768x1(bo);
 }
 

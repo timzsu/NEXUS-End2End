@@ -1,5 +1,7 @@
+#include "nn/constant.cuh"
 #include "nn/matrix_mul.cuh"
 #include "nn/nexus_utility.cuh"
+#include "nn/pt_pack.cuh"
 #include "nn/row_pack.h"
 #include "nn/params.cuh"
 #include "torch/cuda.h"
@@ -50,9 +52,9 @@ TEST_CASE("Matrix Multiplication") {
         torch::Tensor matrix_C2 = torch::mm(matrix_A2, matrix_B2);
         auto ct_matrix = CKKSEncrypt(flatten_pack(matrix_A1, matrix_A2), ckks_evaluator);
         vector<double> pt_matrix = flatten_pack(matrix_B1, matrix_B2);
-
+        auto packed_pt_matrix = pt_pack(pt_matrix, ckks_evaluator);
         PhantomCiphertext res;
-        mme.matrix_mul_ct128x128_pt128x128(ct_matrix, pt_matrix, res);
+        mme.matrix_mul_ct128x128_pt128x128(ct_matrix, packed_pt_matrix, res);
         CHECK(res.chain_index() == ct_matrix.chain_index() + 1);
         auto mm_res = tensor_from_vector(CKKSDecrypt(res, ckks_evaluator), {2, 128, 128});
 
@@ -61,7 +63,7 @@ TEST_CASE("Matrix Multiplication") {
 
         torch::cuda::synchronize();
         BENCHMARK("matmul") {
-            mme.matrix_mul_ct128x128_pt128x128(ct_matrix, pt_matrix, res);
+            mme.matrix_mul_ct128x128_pt128x128(ct_matrix, packed_pt_matrix, res);
             torch::cuda::synchronize();
         };
     }
@@ -173,10 +175,11 @@ TEST_CASE("Matrix Multiplication") {
             CKKSEncrypt(packed_A[2], ckks_evaluator), 
         };
         auto pts = row_pack_768x128(matrix_B);
+        auto packed_pts = pt_pack_1d<3>(pts, ckks_evaluator);
         auto bias_packed = row_pack_128x1(bias);
 
         PhantomCiphertext res;
-        mme.matrix_mul_ct128x768_pt768x128(cts, pts, res);
+        mme.matrix_mul_ct128x768_pt768x128(cts, packed_pts, res);
         CHECK(res.chain_index() == cts[0].chain_index() + 1);
         auto mm_res = tensor_from_vector(CKKSDecrypt(res, ckks_evaluator), {2, 128, 128});
         CHECK(torch::allclose(mm_res.index({0}), matrix_C, MAX_RTOL, MAX_ATOL));
@@ -190,7 +193,7 @@ TEST_CASE("Matrix Multiplication") {
 
         torch::cuda::synchronize();
         BENCHMARK("matmul") {
-            mme.matrix_mul_ct128x768_pt768x128(cts, pts, res);
+            mme.matrix_mul_ct128x768_pt768x128(cts, packed_pts, res);
             torch::cuda::synchronize();
         };
     }
@@ -228,11 +231,12 @@ TEST_CASE("Matrix Multiplication") {
             CKKSEncrypt(packed_A[1], ckks_evaluator), 
             CKKSEncrypt(packed_A[2], ckks_evaluator), 
         };
-        vector<vector<double>> pts = row_pack_768x64x2(matrix_B1, matrix_B2);
+        auto pts = row_pack_768x64x2(matrix_B1, matrix_B2);
+        auto packed_pts = pt_pack_1d<6>(pts, ckks_evaluator);
         auto bias_packed = row_pack_64x1x2(bias1, bias2);
 
         PhantomCiphertext res;
-        mme.matrix_mul_ct128x768_pt768x64x2(cts, pts, res);
+        mme.matrix_mul_ct128x768_pt768x64x2(cts, packed_pts, res);
         CHECK(res.chain_index() == cts[0].chain_index() + 1);
 
         {
@@ -260,7 +264,7 @@ TEST_CASE("Matrix Multiplication") {
 
         torch::cuda::synchronize();
         BENCHMARK("matmul") {
-            mme.matrix_mul_ct128x768_pt768x64x2(cts, pts, res);
+            mme.matrix_mul_ct128x768_pt768x64x2(cts, packed_pts, res);
             torch::cuda::synchronize();
         };
     }
@@ -299,10 +303,11 @@ TEST_CASE("Matrix Multiplication") {
             CKKSEncrypt(packed_A[2], ckks_evaluator),
         };
         auto pts = row_pack_768x768(matrix_B);
+        auto packed_pts = pt_pack_2d<3, 6>(pts, ckks_evaluator);
         auto bias_packed = row_pack_768x1(bias);
 
         vector<PhantomCiphertext> res;
-        mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);
+        mme.matrix_mul_ct128x768_pt768x768(cts, packed_pts, res);
         for (int i=0; i<3; i++) {
             CHECK(res[i].chain_index() == cts[i].chain_index() + 1);
         }
@@ -330,7 +335,7 @@ TEST_CASE("Matrix Multiplication") {
 
         torch::cuda::synchronize();
         BENCHMARK("matmul") {
-            mme.matrix_mul_ct128x768_pt768x768(cts, pts, res);
+            mme.matrix_mul_ct128x768_pt768x768(cts, packed_pts, res);
             torch::cuda::synchronize();
         };
     }
