@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Bootstrapper.cuh"
 #include "ckks_evaluator.cuh"
 #include "phantom.h"
 
@@ -13,9 +14,10 @@ class GELUEvaluator {
   int d_f = 2;
 
   std::shared_ptr<CKKSEvaluator> ckks;
+  std::shared_ptr<Bootstrapper> bootstrapper;
 
  public:
-  GELUEvaluator(std::shared_ptr<CKKSEvaluator> ckks) : ckks(ckks) {}
+  GELUEvaluator(std::shared_ptr<CKKSEvaluator> ckks, std::shared_ptr<Bootstrapper> bootstrapper) : ckks(ckks), bootstrapper(bootstrapper) {}
 
   void gelu(PhantomCiphertext &x, PhantomCiphertext &res);
 };

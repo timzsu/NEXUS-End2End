@@ -42,6 +42,8 @@ void BertAttention::pack_weights() {
 std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>& x) {
     // Implement the forward pass for self-attention here
     Timer timer;
+    for (auto& ct : x)
+        ckks->evaluator.mod_switch_to_inplace(ct, chain_idx(6));
     std::array<PhantomCiphertext, num_heads/2> QKV;
     for (int i=0; i<num_heads/2; i++) {
         timer.start();
@@ -69,6 +71,7 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
         timer.stop();
         qk_time += timer.duration();
         timer.start();
+        bootstrap(QK, bootstrapper);
         softmax_evaluator.softmax_128x128(QK, So);
         torch::cuda::synchronize();
         timer.stop();

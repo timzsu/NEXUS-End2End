@@ -1,4 +1,5 @@
 #include "nn/argmax.cuh"
+#include "nn/nexus_utility.cuh"
 
 void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, int len) {
   PhantomCiphertext tmp, b, sign, a_plus_b, a_minus_b, a_minus_b_sgn;
@@ -35,7 +36,7 @@ void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, in
     ckks->evaluator.mod_switch_to_inplace(a_plus_b, a_minus_b_sgn.params_id());
     ckks->evaluator.add(a_plus_b, a_minus_b_sgn, x);
 
-    bootstrap(x);
+    bootstrap(x, bootstrapper);
   }
 
   x_copy.scale() = x.scale();
@@ -46,14 +47,4 @@ void ArgmaxEvaluator::argmax(PhantomCiphertext &x, PhantomCiphertext &x_copy, in
 
   ckks->encoder.encode(1.0, x_copy.params_id(), x_copy.scale(), one);
   ckks->evaluator.add_plain_inplace(x_copy, one);
-}
-
-void ArgmaxEvaluator::bootstrap(PhantomCiphertext &x) {
-  while (x.coeff_modulus_size() > 1) {
-    ckks->evaluator.mod_switch_to_next_inplace(x);
-  }
-  PhantomCiphertext rtn;
-  bootstrapper->set_final_scale(x.scale());
-  bootstrapper->bootstrap_3(rtn, x);
-  x = rtn;
 }

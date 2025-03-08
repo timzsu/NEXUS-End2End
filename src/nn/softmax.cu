@@ -43,9 +43,10 @@ void SoftmaxEvaluator::softmax(PhantomCiphertext &x, PhantomCiphertext &res, int
 void SoftmaxEvaluator::softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &res) {
   PhantomCiphertext tmp, exp_x;
 
-  exp_x = ckks->exp(x);
+  exp_x = ckks->exp(x); // Consumes 8 levels
 
   res = quick_sum(exp_x, ckks, 128);
+  bootstrap(res, bootstrapper, true);
 
   // Normalize res/delta to [0, 1]
   PhantomPlaintext delta;
@@ -53,15 +54,16 @@ void SoftmaxEvaluator::softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &
   ckks->evaluator.multiply_plain_inplace(res, delta);
   ckks->evaluator.rescale_to_next_inplace(res);
 
-  res = ckks->inverse(res);
+  res = ckks->inverse(res); // Consumes 5 levels
 
   // Recover 1/res
   ckks->encoder.encode(0.01, res.params_id(), res.scale(), delta);
   ckks->evaluator.multiply_plain_inplace(res, delta);
   ckks->evaluator.rescale_to_next_inplace(res);
 
-  ckks->evaluator.mod_switch_to_inplace(exp_x, res.params_id());
+  ckks->evaluator.mod_switch_to_inplace(res, exp_x.chain_index());
   ckks->evaluator.multiply(res, exp_x, res);
   ckks->evaluator.relinearize_inplace(res, *ckks->relin_keys);
   ckks->evaluator.rescale_to_next_inplace(res);
+  // std::cout << "Moduli left after softmax: " << res.coeff_modulus_size() << std::endl;
 }

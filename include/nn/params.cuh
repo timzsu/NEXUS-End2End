@@ -43,7 +43,7 @@ auto setup() {
             loge,
             logN - 1,
             logN - 1,
-            total_level,
+            total_level - 1,
             scale,
             boundary_K,
             deg,

@@ -1,4 +1,5 @@
 #include "nn/gelu.cuh"
+#include "nn/nexus_utility.cuh"
 
 using namespace nexus;
 using namespace phantom::arith;
@@ -20,8 +21,12 @@ void GELUEvaluator::gelu(PhantomCiphertext &x, PhantomCiphertext &res) {
   ckks->evaluator.multiply_plain_inplace(b1, delta);
   ckks->evaluator.rescale_to_next_inplace(b1);
 
-  b0 = ckks->sgn_eval(b0, d_g, d_f);
-  b1 = ckks->sgn_eval(b1, d_g, d_f);
+  bootstrap(b0, bootstrapper, true);
+  bootstrap(b1, bootstrapper, true);
+  b0 = ckks->sgn_eval(b0, d_g, d_f); // Consumes 11 levels
+  b1 = ckks->sgn_eval(b1, d_g, d_f); // Consumes 11 levels
+  bootstrap(b0, bootstrapper);
+  bootstrap(b1, bootstrapper);
 
   PhantomPlaintext zero_point_five;
   ckks->encoder.encode(ckks->init_vec_with_value(0.5), b1.params_id(), b1.scale(), zero_point_five);
@@ -96,19 +101,19 @@ void GELUEvaluator::gelu(PhantomCiphertext &x, PhantomCiphertext &res) {
 
   PhantomCiphertext s1, s2;
   // // cout << Ax.scale() << " " << Bx.scale() << " " << a1.scale() << endl;
-  ckks->evaluator.mod_switch_to_inplace(Ax, a1.params_id());
+  mod_switch_to_same(Ax, a1, ckks);
   ckks->evaluator.multiply(Ax, a1, s1);
   ckks->evaluator.relinearize_inplace(s1, *ckks->relin_keys);
   ckks->evaluator.rescale_to_next_inplace(s1);
 
-  ckks->evaluator.mod_switch_to_inplace(x, a2.params_id());
+  mod_switch_to_same(x, a2, ckks);
   ckks->evaluator.multiply(x, a2, s2);
   ckks->evaluator.relinearize_inplace(s2, *ckks->relin_keys);
   ckks->evaluator.rescale_to_next_inplace(s2);
 
   s1.scale() = ckks->scale;
   s2.scale() = ckks->scale;
-  ckks->evaluator.mod_switch_to_inplace(s2, s1.params_id());
+  mod_switch_to_same(s1, s2, ckks);
   ckks->evaluator.add(s1, s2, res);
 
   // cout << "Moduli left after GELU: " << res.coeff_modulus_size() << endl;

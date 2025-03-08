@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Bootstrapper.cuh"
 #include "ckks_evaluator.cuh"
 #include <precompiled/torch_includes.h>
 #include "nn/constant.cuh"
@@ -78,6 +79,41 @@ inline torch::Tensor tensor_from_ciphertexts(std::vector<PhantomCiphertext>& cip
         decrypted_out.push_back(tensor_out.index({1}));
     }
     return torch::concat(decrypted_out, -1);
+}
+
+// level: 1 ... L+1
+inline uint64_t chain_idx(uint64_t level) {
+    return total_level - level + 2;
+}
+inline uint64_t level_from_chain_idx(uint64_t chain_idx) {
+    return total_level - chain_idx + 2;
+}
+
+inline void bootstrap(PhantomCiphertext &x, std::shared_ptr<Bootstrapper> bootstrapper, bool suppress_warning = false) {
+    if (!suppress_warning && x.coeff_modulus_size() > 1) {
+        printf("Warning: The ciphertext for bootstrap is at level %lu. Consider computation under lower levels to further improve performance. If you know this, pass suppress_warning=true to suppress this warning. \n", level_from_chain_idx(x.chain_index()));
+    }
+    while (x.coeff_modulus_size() > 1) {
+        bootstrapper->ckks->evaluator.mod_switch_to_next_inplace(x);
+    }
+    PhantomCiphertext rtn;
+    bootstrapper->set_final_scale(x.scale());
+    bootstrapper->bootstrap_3(rtn, x);
+    x = rtn;
+}
+
+inline void bootstrap(std::vector<PhantomCiphertext> &x, std::shared_ptr<Bootstrapper> bootstrapper) {
+    for (auto& ct : x) {
+        bootstrap(ct, bootstrapper);
+    }
+}
+
+inline void mod_switch_to_same(PhantomCiphertext& x, PhantomCiphertext& y, std::shared_ptr<CKKSEvaluator> ckks_evaluator) {
+    if (x.coeff_modulus_size() > y.coeff_modulus_size()) {
+        ckks_evaluator->evaluator.mod_switch_to_inplace(x, y.chain_index());
+    } else if (x.coeff_modulus_size() < y.coeff_modulus_size()) {
+        ckks_evaluator->evaluator.mod_switch_to_inplace(y, x.chain_index());
+    }
 }
 
 }  // namespace nexus

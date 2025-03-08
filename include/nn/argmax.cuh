@@ -19,7 +19,5 @@ class ArgmaxEvaluator {
   }
 
   void argmax(PhantomCiphertext &x, PhantomCiphertext &res, int len);
-
-  void bootstrap(PhantomCiphertext &x);
 };
 }  // namespace nexus

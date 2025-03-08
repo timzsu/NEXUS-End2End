@@ -29,10 +29,10 @@ torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
 
 TEST_CASE("Non-linear Operations") {
     
-    auto ckks_evaluator = setup();
+    auto [ckks_evaluator, bootstrapper] = setup<1>();
 
     SECTION("Softmax") {
-        SoftmaxEvaluator softmax_evaluator(ckks_evaluator);
+        SoftmaxEvaluator softmax_evaluator(ckks_evaluator, bootstrapper);
 
         torch::Tensor matrix_A = random_tensor({128, 128}, -1, 1);
         torch::Tensor matrix_B = random_tensor({128, 128}, -1, 1);
@@ -49,7 +49,7 @@ TEST_CASE("Non-linear Operations") {
         };
         PhantomCiphertext res;
         softmax_evaluator.softmax_128x128(ct_matrix, res);
-        CHECK(res.chain_index() == ct_matrix.chain_index() + 17);
+        CHECK(res.chain_index() == ct_matrix.chain_index() + 9);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {2, 128, 128});
 
@@ -58,7 +58,7 @@ TEST_CASE("Non-linear Operations") {
     }
 
     SECTION("GELU") {
-        GELUEvaluator gelu_evaluator(ckks_evaluator);
+        GELUEvaluator gelu_evaluator(ckks_evaluator, bootstrapper);
 
         torch::Tensor matrix_A = torch::randn({128, 256}, torch::kDouble);
         torch::Tensor matrix_res = torch::nn::functional::gelu(matrix_A);
@@ -73,7 +73,7 @@ TEST_CASE("Non-linear Operations") {
         PhantomCiphertext res;
         auto original_chain_index = ct_matrix.chain_index();
         gelu_evaluator.gelu(ct_matrix, res);
-        CHECK(res.chain_index() == original_chain_index + 18);
+        CHECK(res.chain_index() == original_chain_index + 6);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {128, 256});
 
@@ -82,7 +82,7 @@ TEST_CASE("Non-linear Operations") {
     }
 
     SECTION("Layer Norm") {
-        LNEvaluator ln_evaluator(ckks_evaluator);
+        LNEvaluator ln_evaluator(ckks_evaluator, bootstrapper);
 
         torch::Tensor matrix_A = random_tensor({16, 768}, -3, 3);
         matrix_A -= matrix_A.mean(1, true);
@@ -108,7 +108,7 @@ TEST_CASE("Non-linear Operations") {
     }
 
     SECTION("Layer Norm 128x768") {
-        LNEvaluator ln_evaluator(ckks_evaluator);
+        LNEvaluator ln_evaluator(ckks_evaluator, bootstrapper);
 
         torch::Tensor matrix_A = random_tensor({128, 768}, -3, 3);
         torch::Tensor matrix_res = torch::layer_norm(matrix_A, 768);
@@ -127,7 +127,7 @@ TEST_CASE("Non-linear Operations") {
         };
         std::vector<PhantomCiphertext> res;
         ln_evaluator.layer_norm_128x768(ct_matrix, res);
-        CHECK(res[0].chain_index() == ct_matrix[0].chain_index() + 21);
+        CHECK(res[0].chain_index() == ct_matrix[0].chain_index() + 16);
 
         torch::Tensor output = tensor_from_ciphertexts(res, ckks_evaluator);
 

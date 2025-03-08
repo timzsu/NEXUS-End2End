@@ -75,13 +75,15 @@ void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vec
   ckks->evaluator.multiply_plain_inplace(sumy, delta);
   ckks->evaluator.rescale_to_next_inplace(sumy);
 
-  inv_sqrt = ckks->invert_sqrt(sumy, 4, 2);
+  bootstrap(sumy, bootstrapper);
+  inv_sqrt = ckks->invert_sqrt(sumy, 4, 2); // Consumes 15 levels
 
   for (int i=0; i<3; i++) {
     PhantomCiphertext a = z[i];
-    ckks->evaluator.mod_switch_to_inplace(a, inv_sqrt.params_id());
+    mod_switch_to_same(a, inv_sqrt, ckks);
     ckks->evaluator.multiply(inv_sqrt, a, res[i]);
     ckks->evaluator.relinearize_inplace(res[i], *ckks->relin_keys);
     ckks->evaluator.rescale_to_next_inplace(res[i]);
   }
+  // std::cout << "Moduli left after layernorm: " << res[0].coeff_modulus_size() << std::endl;
 }

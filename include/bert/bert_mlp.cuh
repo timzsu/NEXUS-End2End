@@ -3,6 +3,7 @@
 #include "nn/row_pack.h"
 #include "utils.cuh"
 
+#include "Bootstrapper.cuh"
 #include "ckks_evaluator.cuh"
 
 namespace nexus {
@@ -12,6 +13,7 @@ private:
     MMEvaluator mm_evaluator;
     GELUEvaluator gelu_evaluator;
     std::shared_ptr<CKKSEvaluator> ckks;
+    std::shared_ptr<Bootstrapper> bootstrapper;
 
     static constexpr int expansion_factor = 4;
     static constexpr int hidden_dim = 768;
@@ -26,7 +28,7 @@ private:
     Timer up_proj_timer, gelu_timer, down_proj_timer;
 
 public:
-    BertMLP(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), gelu_evaluator(ckks), ckks(ckks), 
+    BertMLP(std::shared_ptr<CKKSEvaluator> ckks, std::shared_ptr<Bootstrapper> bootstrapper) : mm_evaluator(ckks), gelu_evaluator(ckks, bootstrapper), ckks(ckks), bootstrapper(bootstrapper), 
         up_proj(torch::nn::LinearOptions(hidden_dim, hidden_dim*expansion_factor)), 
         down_proj(torch::nn::LinearOptions(hidden_dim*expansion_factor, hidden_dim)),
         gelu(torch::nn::GELUOptions()) {

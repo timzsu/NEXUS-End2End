@@ -8,53 +8,36 @@ void BertLayer::pack_weights() {
     mlp.pack_weights();
 }
 
-void BertLayer::bootstrap(PhantomCiphertext &x) {
-  while (x.coeff_modulus_size() > 1) {
-    ckks->evaluator.mod_switch_to_next_inplace(x);
-  }
-  PhantomCiphertext rtn;
-  bootstrapper->set_final_scale(x.scale());
-  bootstrapper->bootstrap_3(rtn, x);
-  x = rtn;
-}
-
-void BertLayer::bootstrap(std::vector<PhantomCiphertext> &x) {
-  for (auto& ct : x) {
-    bootstrap(ct);
-  }
-}
-
 std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x) {
+
     auto attn_output = self_attention.forward(x);
     torch::cuda::synchronize();
-    bootstrap1_timer.start();
-    bootstrap(attn_output);
-    torch::cuda::synchronize();
-    bootstrap1_timer.stop();
+    std::cout << "Attention Finished" << std::endl;
+
     layer_norm1_timer.start();
+    bootstrap(attn_output, bootstrapper);
     std::vector<PhantomCiphertext> attn_output_normalized;
     ln_evaluator.layer_norm_128x768(attn_output, attn_output_normalized);
+    bootstrap(attn_output_normalized, bootstrapper);
+    for (auto& ct: attn_output_normalized) {
+      ckks->evaluator.mod_switch_to_inplace(ct, chain_idx(14));
+    }
     torch::cuda::synchronize();
     layer_norm1_timer.stop();
-    bootstrap2_timer.start();
-    bootstrap(attn_output_normalized);
-    torch::cuda::synchronize();
-    bootstrap2_timer.stop();
+    std::cout << "LN1 Finished in " << layer_norm1_timer.duration() / 1e3 << " seconds. " << std::endl;
+
     auto mlp_output = mlp.forward(attn_output_normalized);
     torch::cuda::synchronize();
-    bootstrap3_timer.start();
-    bootstrap(mlp_output);
-    torch::cuda::synchronize();
-    bootstrap3_timer.stop();
+    std::cout << "MLP Finished" << std::endl;
+
     layer_norm2_timer.start();
     std::vector<PhantomCiphertext> mlp_output_normalized;
     ln_evaluator.layer_norm_128x768(mlp_output, mlp_output_normalized);
+    bootstrap(mlp_output_normalized, bootstrapper);
     torch::cuda::synchronize();
     layer_norm2_timer.stop();
-    bootstrap4_timer.start();
-    bootstrap(mlp_output_normalized);
-    torch::cuda::synchronize();
-    bootstrap4_timer.stop();
+    std::cout << "LN2 Finished in " << layer_norm2_timer.duration() / 1e3 << " seconds. " << std::endl;
+
     return mlp_output_normalized;
 }
 

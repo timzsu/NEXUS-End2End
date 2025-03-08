@@ -12,6 +12,7 @@ private:
     MMEvaluator mm_evaluator;
     SoftmaxEvaluator softmax_evaluator;
     std::shared_ptr<CKKSEvaluator> ckks;
+    std::shared_ptr<Bootstrapper> bootstrapper;
 
     static constexpr int num_heads = 12;
     static constexpr int embed_dim = 768;
@@ -29,7 +30,7 @@ private:
     Timer o_proj_timer;
 
 public:
-    BertAttention(std::shared_ptr<CKKSEvaluator> ckks) : mm_evaluator(ckks), softmax_evaluator(ckks), ckks(ckks), 
+    BertAttention(std::shared_ptr<CKKSEvaluator> ckks, std::shared_ptr<Bootstrapper> bootstrapper) : mm_evaluator(ckks), softmax_evaluator(ckks, bootstrapper), ckks(ckks), bootstrapper(bootstrapper),
     q_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
     k_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
     v_proj(torch::nn::LinearOptions(embed_dim, embed_dim)), 
