@@ -47,4 +47,7 @@ FlatVec row_pack_128x1(torch::Tensor vector);
 FlatVec row_pack_64x1x2(torch::Tensor vector1, torch::Tensor vector2);
 FlatVecArray row_pack_768x1(torch::Tensor vector);
 
+// attention mask related
+FlatVec convert_mask(torch::Tensor mask);
+
 }

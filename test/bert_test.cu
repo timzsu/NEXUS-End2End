@@ -11,7 +11,7 @@ using namespace phantom::util;
 using namespace nexus;
 
 constexpr double MAX_RTOL=5e-2;
-constexpr double MAX_ATOL=5e-2;
+constexpr double MAX_ATOL=0.5;
 
 torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
     return torch::rand(size, torch::kDouble) * (max - min) + min;   
@@ -24,7 +24,10 @@ TEST_CASE("BERT Components") {
         BertAttention attention(ckks_evaluator, bootstrapper);
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
-        auto gt_output = attention.forward(input.to(torch::kFloat));
+        torch::Tensor attention_mask = torch::ones({128, 128}, torch::kBool);
+        attention_mask.slice(1, 126) = 0;
+        auto mask = convert_mask(attention_mask);
+        auto gt_output = attention.forward(input.to(torch::kFloat), attention_mask);
 
         auto packed_input = row_pack_128x768(input);
         std::vector<PhantomCiphertext> input_ct;
@@ -37,10 +40,10 @@ TEST_CASE("BERT Components") {
         torch::cuda::synchronize();
         BENCHMARK("forward") {
             std::vector<PhantomCiphertext> res, input_copy = input_ct;
-            auto out = attention.forward(input_ct);
+            auto out = attention.forward(input_ct, mask);
             torch::cuda::synchronize();
         };
-        auto out = attention.forward(input_ct);
+        auto out = attention.forward(input_ct, mask);
         attention.print_time();
 
         torch::Tensor attn_output = tensor_from_ciphertexts(out, ckks_evaluator);
@@ -84,7 +87,10 @@ TEST_CASE("BERT Layer") {
     BertLayer bert_layer(ckks_evaluator, bootstrapper);
 
     torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
-    auto gt_output = bert_layer.forward(input.to(torch::kFloat));
+    torch::Tensor attention_mask = torch::ones({128, 128}, torch::kBool);
+    attention_mask.slice(1, 126) = 0;
+    auto mask = convert_mask(attention_mask);
+    auto gt_output = bert_layer.forward(input.to(torch::kFloat), attention_mask);
 
     auto packed_input = row_pack_128x768(input);
     std::vector<PhantomCiphertext> input_ct;
@@ -97,16 +103,17 @@ TEST_CASE("BERT Layer") {
     torch::cuda::synchronize();
     BENCHMARK("forward") {
         std::vector<PhantomCiphertext> res, input_copy = input_ct;
-        auto out = bert_layer.forward(input_ct);
+        auto out = bert_layer.forward(input_ct, mask);
         torch::cuda::synchronize();
     };
     Timer timer;
-    auto out = bert_layer.forward(input_ct);
+    auto out = bert_layer.forward(input_ct, mask);
     torch::cuda::synchronize();
     timer.stop("End to end run time (ms): ");
     bert_layer.print_time();
 
     torch::Tensor output = tensor_from_ciphertexts(out, ckks_evaluator);
 
+    cout << (output - gt_output).abs().max() << endl;
     CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
 }

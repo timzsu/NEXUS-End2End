@@ -39,7 +39,7 @@ void BertAttention::pack_weights() {
     Bo_packed = row_pack_768x1(bo);
 }
 
-std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>& x) {
+std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>& x, FlatVec attention_mask) {
     // Implement the forward pass for self-attention here
     Timer timer;
     for (auto& ct : x)
@@ -72,7 +72,7 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
         qk_time += timer.duration();
         timer.start();
         bootstrap(QK, bootstrapper);
-        softmax_evaluator.softmax_128x128(QK, So);
+        softmax_evaluator.softmax_128x128(QK, So, attention_mask);
         torch::cuda::synchronize();
         timer.stop();
         softmax_time += timer.duration();
@@ -101,7 +101,7 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
 }
 
 // Reference: https://discuss.pytorch.org/t/which-multihead-attention-implementation-is-correct/198996/2
-torch::Tensor BertAttention::forward(torch::Tensor x) {
+torch::Tensor BertAttention::forward(torch::Tensor x, torch::Tensor attention_mask) {
     TORCH_CHECK(x.sizes().size() == 2 || x.sizes().size() == 3, "x should have 2 or 3 dimensions, but the input has", x.sizes().size(), "dimensions");
     bool no_batch_flag = (x.sizes().size() == 2);
     if (no_batch_flag) {
@@ -111,14 +111,18 @@ torch::Tensor BertAttention::forward(torch::Tensor x) {
     int batch_size = x.size(0);
     int seq_len = x.size(1);
     int embed_size = x.size(2);
-        
+    
+    TORCH_CHECK(attention_mask.size(0) == attention_mask.size(1) && attention_mask.size(0) == seq_len, "Attention mask should have size seq_len x seq_len. Attention size: ", attention_mask.sizes(), ", seq_len", seq_len);
+
+    attention_mask = attention_mask.unsqueeze(0).unsqueeze(0).broadcast_to({batch_size, num_heads, seq_len, seq_len});
+    
     auto query = q_proj->forward(x).view({batch_size, seq_len, num_heads, head_dim}).transpose(1,2);
     auto key = k_proj->forward(x).view({batch_size, seq_len, num_heads, head_dim}).transpose(1,2);
     auto value = v_proj->forward(x).view({batch_size, seq_len, num_heads, head_dim}).transpose(1,2);
 
     auto scores = torch::matmul(query, key.transpose(-2,-1))/ std::sqrt(head_dim);
-    // if mask is not None:
-    //     scores.masked_fill(mask==0, float("-inf"))
+    if (!attention_mask.all().item<bool>())
+        scores.masked_fill_(~attention_mask, -100);
     auto attn_weight = torch::softmax(scores, -1);
     
     auto attention = torch::matmul(attn_weight, value);

@@ -8,6 +8,14 @@
 
 namespace nexus {
 
+// level: 1 ... L+1
+inline uint64_t chain_idx(uint64_t level) {
+    return total_level - level + 2;
+}
+inline uint64_t level_from_chain_idx(uint64_t chain_idx) {
+    return total_level - chain_idx + 2;
+}
+
 inline PhantomCiphertext quick_sum(const PhantomCiphertext& x, std::shared_ptr<CKKSEvaluator> ckks, int len) {
     PhantomCiphertext tmp = x, res;
     std::vector<double> mask(slot_count, 0);
@@ -33,7 +41,8 @@ inline PhantomCiphertext quick_sum(const PhantomCiphertext& x, std::shared_ptr<C
 inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr) {
     PhantomPlaintext pt;
     if (ref_ct) {
-        ckks_evaluator->encoder.encode(data, ref_ct->chain_index(), ref_ct->scale(), pt);
+        ckks_evaluator->encoder.encode(data, ref_ct->scale(), pt);
+        ckks_evaluator->evaluator.mod_switch_to_inplace(pt, ref_ct->chain_index());
     } else {
         ckks_evaluator->encoder.encode(data, ckks_evaluator->scale, pt);
     }
@@ -79,14 +88,6 @@ inline torch::Tensor tensor_from_ciphertexts(std::vector<PhantomCiphertext>& cip
         decrypted_out.push_back(tensor_out.index({1}));
     }
     return torch::concat(decrypted_out, -1);
-}
-
-// level: 1 ... L+1
-inline uint64_t chain_idx(uint64_t level) {
-    return total_level - level + 2;
-}
-inline uint64_t level_from_chain_idx(uint64_t chain_idx) {
-    return total_level - chain_idx + 2;
 }
 
 inline void bootstrap(PhantomCiphertext &x, std::shared_ptr<Bootstrapper> bootstrapper, bool suppress_warning = false) {

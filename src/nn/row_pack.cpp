@@ -103,4 +103,17 @@ FlatVecArray row_pack_768x1(torch::Tensor vector) {
     return result;
 }
 
+FlatVec convert_mask(torch::Tensor mask) {
+    TORCH_CHECK_EQ(mask.dtype(), torch::kBool);
+    TORCH_CHECK_EQ(mask.size(0), 128);
+    TORCH_CHECK_EQ(mask.size(1), 128);
+
+    torch::Tensor new_mask = torch::zeros_like(mask, torch::kDouble);
+
+    new_mask.masked_fill_(~mask, -100);
+    auto attention_mask = vector_from_tensor(new_mask);
+    attention_mask.insert(attention_mask.end(), attention_mask.begin(), attention_mask.end());
+    return attention_mask;
+}
+
 } // namespace nexus

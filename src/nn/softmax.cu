@@ -1,3 +1,4 @@
+#include "nn/constant.cuh"
 #include "nn/softmax.cuh"
 #include "nn/nexus_utility.cuh"
 
@@ -40,8 +41,11 @@ void SoftmaxEvaluator::softmax(PhantomCiphertext &x, PhantomCiphertext &res, int
   // cout << "Moduli left after SoftMax: " << res.coeff_modulus_size() << endl;
 }
 
-void SoftmaxEvaluator::softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &res) {
+void SoftmaxEvaluator::softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &res, FlatVec attention_mask) {
   PhantomCiphertext tmp, exp_x;
+
+  PhantomPlaintext mask_pt = CKKSEncode(attention_mask, ckks, &x);
+  ckks->evaluator.add_plain_inplace(x, mask_pt);
 
   exp_x = ckks->exp(x); // Consumes 8 levels
 

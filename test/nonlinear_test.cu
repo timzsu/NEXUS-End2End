@@ -37,6 +37,13 @@ TEST_CASE("Non-linear Operations") {
         torch::Tensor matrix_A = random_tensor({128, 128}, -1, 1);
         torch::Tensor matrix_B = random_tensor({128, 128}, -1, 1);
         matrix_A -= std::get<0>(matrix_A.max(1, true));
+
+        torch::Tensor attention_mask = torch::randint(0, 2, {128, 128}, torch::kBool);
+        auto mask = convert_mask(attention_mask);
+
+        matrix_A.masked_fill_(~attention_mask, -100);
+        matrix_B.masked_fill_(~attention_mask, -100);
+        
         torch::Tensor matrix_res_A = torch::softmax(matrix_A, 1);
         torch::Tensor matrix_res_B = torch::softmax(matrix_B, 1);
 
@@ -44,11 +51,11 @@ TEST_CASE("Non-linear Operations") {
         torch::cuda::synchronize();
         BENCHMARK("softmax") {
             PhantomCiphertext res, input_copy = ct_matrix;
-            softmax_evaluator.softmax_128x128(ct_matrix, res);
+            softmax_evaluator.softmax_128x128(ct_matrix, res, mask);
             torch::cuda::synchronize();
         };
         PhantomCiphertext res;
-        softmax_evaluator.softmax_128x128(ct_matrix, res);
+        softmax_evaluator.softmax_128x128(ct_matrix, res, mask);
         CHECK(res.chain_index() == ct_matrix.chain_index() + 9);
         auto mm_res = CKKSDecrypt(res, ckks_evaluator);
         torch::Tensor tensor_res = tensor_from_vector(mm_res, {2, 128, 128});

@@ -40,8 +40,8 @@ public:
 
     void pack_weights();
 
-    std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x);
-    torch::Tensor forward(torch::Tensor x);
+    std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x, FlatVec attention_mask);
+    torch::Tensor forward(torch::Tensor x, torch::Tensor attention_mask);
 
     void print_time() {
         cout << "qkv projection takes " << qkv_proj_time << "ms" << endl;
