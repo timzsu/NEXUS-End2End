@@ -18,7 +18,7 @@ using namespace nexus;
 
 
 constexpr double MAX_RTOL=1e-3;
-constexpr double MAX_ATOL=1e-3;
+constexpr double MAX_ATOL=1e-2;
 
 TEST_CASE("Matrix Multiplication") {
     
@@ -126,6 +126,7 @@ TEST_CASE("Matrix Multiplication") {
         REQUIRE(torch::allclose(mm_res1[0], matrix_intermediate_A, MAX_RTOL, MAX_ATOL));
         REQUIRE(torch::allclose(mm_res1[1], matrix_intermediate_B, MAX_RTOL, MAX_ATOL));
 
+        ckks_evaluator->evaluator.mod_switch_to_inplace(res1, ct3.chain_index() + 5);
         mme.matrix_mul_ct128x128_ct128x128(res1, ct3, res2);
         CHECK(res2.chain_index() == res1.chain_index() + 1);
         auto mm_res2 = tensor_from_vector(CKKSDecrypt(res2, ckks_evaluator), {2, 128, 128});

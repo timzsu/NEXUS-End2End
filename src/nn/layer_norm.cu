@@ -48,9 +48,8 @@ void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vec
   ckks->evaluator.rotate_vector(sumx, slot_count / 2, *(ckks->galois_keys), rot_sumx);
   ckks->evaluator.add_inplace(sumx, rot_sumx);
 
-  std::vector<double> const_1by768(slot_count, 1./768);
-  std::vector<double> const_1(slot_count, 1.);
-  ckks->evaluator.multiply_vector_inplace_reduced_error(sumx, const_1by768);
+  auto ratio_pt = CKKSEncode(ckks->init_vec_with_value(1.0 / 768), ckks, &sumx, true);
+  ckks->evaluator.multiply_plain_inplace(sumx, ratio_pt);
   ckks->evaluator.rescale_to_next_inplace(sumx);
   for (int i=0; i<3; i++) {
     PhantomCiphertext x_copy = x[i];
@@ -69,14 +68,12 @@ void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vec
   ckks->evaluator.rotate_vector(sumy, slot_count / 2, *(ckks->galois_keys), rot_sumy);
   ckks->evaluator.add_inplace(sumy, rot_sumy);
 
-  PhantomPlaintext delta;
-  ckks->encoder.encode(1.0 / 768, sumy.params_id(), sumy.scale(), delta);
-  PhantomCiphertext inv_sqrt;
+  PhantomPlaintext delta = CKKSEncode(1.0 / 768, ckks, &sumy, true);
   ckks->evaluator.multiply_plain_inplace(sumy, delta);
   ckks->evaluator.rescale_to_next_inplace(sumy);
 
   bootstrap(sumy, bootstrapper);
-  inv_sqrt = ckks->invert_sqrt(sumy, 4, 2); // Consumes 15 levels
+  PhantomCiphertext inv_sqrt = ckks->invert_sqrt(sumy, 4, 2); // Consumes 15 levels
 
   for (int i=0; i<3; i++) {
     PhantomCiphertext a = z[i];

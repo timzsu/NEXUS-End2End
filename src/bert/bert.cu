@@ -16,6 +16,8 @@ std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x, 
 
     layer_norm1_timer.start();
     bootstrap(attn_output, bootstrapper);
+    for (auto& ct: attn_output)
+      ckks->evaluator.mod_switch_to_inplace(ct, chain_idx(6));
     std::vector<PhantomCiphertext> attn_output_normalized;
     ln_evaluator.layer_norm_128x768(attn_output, attn_output_normalized);
     bootstrap(attn_output_normalized, bootstrapper);

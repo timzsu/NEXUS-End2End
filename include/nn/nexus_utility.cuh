@@ -16,37 +16,21 @@ inline uint64_t level_from_chain_idx(uint64_t chain_idx) {
     return total_level - chain_idx + 2;
 }
 
-inline PhantomCiphertext quick_sum(const PhantomCiphertext& x, std::shared_ptr<CKKSEvaluator> ckks, int len) {
-    PhantomCiphertext tmp = x, res;
-    std::vector<double> mask(slot_count, 0);
-    for (int i=0; i<slot_count; i+=128) {
-        mask[i] = 1;
-    }
-    for (int i = 0; i < std::log2(len); ++i) {
-        ckks->evaluator.rotate_vector(tmp, pow(2, i), *ckks->galois_keys, res);
-        ckks->evaluator.add_inplace(res, tmp);
-        tmp = res;
-    }
-    ckks->evaluator.multiply_vector_inplace_reduced_error(res, mask);
-    ckks->evaluator.rescale_to_next_inplace(res);
-    tmp = res;
-    for (int i = 0; i < std::log2(len); ++i) {
-        ckks->evaluator.rotate_vector(tmp, -pow(2, i), *ckks->galois_keys, res);
-        ckks->evaluator.add_inplace(res, tmp);
-        tmp = res;
-    }
-    return res;
-}
 
-inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr) {
+inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr, bool use_default_scale = false) {
     PhantomPlaintext pt;
     if (ref_ct) {
-        ckks_evaluator->encoder.encode(data, ref_ct->scale(), pt);
+        auto scale = use_default_scale ? ckks_evaluator->scale : ref_ct->scale();
+        ckks_evaluator->encoder.encode(data, scale, pt);
         ckks_evaluator->evaluator.mod_switch_to_inplace(pt, ref_ct->chain_index());
     } else {
         ckks_evaluator->encoder.encode(data, ckks_evaluator->scale, pt);
     }
     return pt;
+}
+
+inline PhantomPlaintext CKKSEncode(double data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr, bool use_default_scale = false) {
+    return CKKSEncode(ckks_evaluator->init_vec_with_value(data), ckks_evaluator, ref_ct, use_default_scale);
 }
 
 inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, int chain_index=boot_level+1) {
@@ -65,6 +49,29 @@ inline vector<double> CKKSDecrypt(PhantomCiphertext ct, shared_ptr<CKKSEvaluator
     vector<double> out;
     ckks_evaluator->encoder.decode(pt, out);
     return out;
+}
+
+inline PhantomCiphertext quick_sum(const PhantomCiphertext& x, std::shared_ptr<CKKSEvaluator> ckks, int len) {
+    PhantomCiphertext tmp = x, res;
+    std::vector<double> mask(slot_count, 0);
+    for (int i=0; i<slot_count; i+=128) {
+        mask[i] = 1;
+    }
+    for (int i = 0; i < std::log2(len); ++i) {
+        ckks->evaluator.rotate_vector(tmp, pow(2, i), *ckks->galois_keys, res);
+        ckks->evaluator.add_inplace(res, tmp);
+        tmp = res;
+    }
+    auto mask_pt = CKKSEncode(mask, ckks, &res, true);
+    ckks->evaluator.multiply_plain_inplace(res, mask_pt);
+    ckks->evaluator.rescale_to_next_inplace(res);
+    tmp = res;
+    for (int i = 0; i < std::log2(len); ++i) {
+        ckks->evaluator.rotate_vector(tmp, -pow(2, i), *ckks->galois_keys, res);
+        ckks->evaluator.add_inplace(res, tmp);
+        tmp = res;
+    }
+    return res;
 }
 
 

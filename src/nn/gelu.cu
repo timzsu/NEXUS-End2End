@@ -6,12 +6,11 @@ using namespace phantom::arith;
 
 void GELUEvaluator::gelu(PhantomCiphertext &x, PhantomCiphertext &res) {
   PhantomCiphertext b0, b1, b2;
-  PhantomPlaintext p0, p1, delta;
   vector<double> dest;
 
-  ckks->encoder.encode(ckks->init_vec_with_value(-3.5), x.params_id(), x.scale(), p0);
-  ckks->encoder.encode(ckks->init_vec_with_value(3.5), x.params_id(), x.scale(), p1);
-  ckks->encoder.encode(ckks->init_vec_with_value(1.0 / 8.5), x.params_id(), x.scale(), delta);
+  PhantomPlaintext p0 = CKKSEncode(ckks->init_vec_with_value(-3.5), ckks, &x);
+  PhantomPlaintext p1 = CKKSEncode(ckks->init_vec_with_value(3.5), ckks, &x);
+  PhantomPlaintext delta = CKKSEncode(ckks->init_vec_with_value(1.0 / 8.5), ckks, &x, true);
 
   ckks->evaluator.sub_plain(x, p0, b0);
   ckks->evaluator.multiply_plain_inplace(b0, delta);
@@ -28,8 +27,7 @@ void GELUEvaluator::gelu(PhantomCiphertext &x, PhantomCiphertext &res) {
   bootstrap(b0, bootstrapper);
   bootstrap(b1, bootstrapper);
 
-  PhantomPlaintext zero_point_five;
-  ckks->encoder.encode(ckks->init_vec_with_value(0.5), b1.params_id(), b1.scale(), zero_point_five);
+  PhantomPlaintext zero_point_five = CKKSEncode(ckks->init_vec_with_value(0.5), ckks, &b1);
   PhantomCiphertext a0, a1, a2;
 
   ckks->evaluator.sub(b0, b1, a1);                     // a1 = b0 - b1
@@ -70,7 +68,7 @@ void GELUEvaluator::gelu(PhantomCiphertext &x, PhantomCiphertext &res) {
   double A[] = {2.25775755e-04, 0.5, 3.96880960e-01, -6.37042698e-02, 8.38841647e-03, -7.17830961e-04, 3.49617829e-05, -7.26059653e-07};
   vector<PhantomPlaintext> coeff_A(8);
   for (size_t i = 0; i < coeff_A.size(); i++) {
-    ckks->encoder.encode(A[i], ckks->scale, coeff_A[i]);
+    coeff_A[i] = CKKSEncode(A[i], ckks);
   }
   vector<PhantomCiphertext> cts(8);
   cts[1] = x;

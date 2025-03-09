@@ -65,7 +65,8 @@ std::vector<PhantomCiphertext> BertAttention::forward(vector<PhantomCiphertext>&
         PhantomCiphertext QK, So;
         mm_evaluator.matrix_mul_ct128x64_ct128x64_transpose(Q, K, QK);
         std::vector<double> ratio(slot_count, 1./std::sqrt(head_dim));
-        ckks->evaluator.multiply_vector_inplace_reduced_error(QK, ratio);
+        auto ratio_pt = CKKSEncode(ratio, ckks, &QK, true);
+        ckks->evaluator.multiply_plain_inplace(QK, ratio_pt);
         ckks->evaluator.rescale_to_next_inplace(QK);
         torch::cuda::synchronize();
         timer.stop();

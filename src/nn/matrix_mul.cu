@@ -365,11 +365,9 @@ void MMEvaluator::init_masks() {
       maskR_ct128x64_ct128x64[gs][bs] = rotate(maskR,-1024*gs);
     }
     
-    // TODO: attention mask
     vector<double> mask(slot_count, 0.0);
     for (int k=0; k<2; k++) {
       for (int j=0; j<128; j++) {
-        // mask[128*128*k + 128*jj] = att_mask[(i + jj) % 128];
         mask[128*128*k + 128*j] = 1;
       }
     }
@@ -420,10 +418,6 @@ void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1,
     baby_steps[8+bs] = -128*(128-bs);
   }
   ckks->evaluator.rotate_batched_vector_inplace(ct2, baby_steps, *(ckks->galois_keys), babySteps);
-  // for (int bs=0; bs<8; bs++) {
-  //   ckks->evaluator.rotate_vector(ct2, 128*bs, *(ckks->galois_keys), babyStepsL[bs]);
-  //   ckks->evaluator.rotate_vector(ct2, -128*(128-bs), *(ckks->galois_keys), babyStepsR[bs]);
-  // }
 
   std::vector<int> giant_steps(16);
   for (int gs=0; gs<16; gs++) {
@@ -434,24 +428,7 @@ void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1,
 
   for (int gs=0; gs<16; gs++) {
     PhantomCiphertext ct1Rot = ct1Rots[gs], sumBs;
-    // ckks->evaluator.rotate_vector(ct1, -1024*gs, *(ckks->galois_keys), ct1Rot);
     for (int bs=0; bs<8; bs++) {
-      // int i = bs + 8*gs;
-      // vector<double> maskL(slot_count, 0.0);
-      // vector<double> maskR(slot_count, 0.0);
-      // for (int k=0; k<2; k++) {
-      //   for (int y=0; y<slot_count / 128 / 2; y++) {
-      //     for (int x=0; x<128; x++) {
-      //       if (y < i)
-      //         maskR[128*(127 - y) + 128*128*k + x] = 1;
-      //       else
-      //         maskL[128*(127 - y) + 128*128*k + x] = 1;
-      //     }
-      //   }
-      // }
-      
-      // maskL = rotate(maskL,-1024*gs);
-      // maskR = rotate(maskR,-1024*gs);
 
       auto maskL = maskL_ct128x64_ct128x64[gs][bs];
       auto maskR = maskR_ct128x64_ct128x64[gs][bs];
@@ -475,15 +452,6 @@ void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1,
         ckks->evaluator.add_inplace(sumi, tmp);
       }
 
-      // TODO: attention mask
-      // vector<double> mask(slot_count, 0.0);
-      // for (int k=0; k<2; k++) {
-      //   for (int j=0; j<128; j++) {
-      //     // mask[128*128*k + 128*jj] = att_mask[(i + jj) % 128];
-      //     mask[128*128*k + 128*j] = 1;
-      //   }
-      // }
-      // mask = rotate(mask,-1024*gs);
       auto mask = mask_ct128x64_ct128x64[gs];
       ckks->encoder.encode(mask, sumi.chain_index(), ckks->scale, pt);
       ckks->evaluator.multiply_plain_inplace(sumi, pt);
@@ -512,20 +480,11 @@ void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, Phantom
     baby_steps[bs] = 128*bs;
   }
   ckks->evaluator.rotate_batched_vector_inplace(ct2, baby_steps, *(ckks->galois_keys), rotBS);
-  // for (int bs=0; bs<8; bs++) {
-  //   ckks->evaluator.rotate_vector(ct2, 128*bs, *(ckks->galois_keys), rotBS[bs]);
-  // }
 
   PhantomCiphertext diag;
   for (int gs=0; gs<16; gs++) {
     PhantomCiphertext diagBS;
     for (int bs=0; bs<8; bs++) {
-      // int i = bs + 8*gs;
-      // vector<double> mask(slot_count, 0.0);
-      // for (int y=0; y<slot_count / 128; y++) {
-      //   mask[i+128*y] = 1;
-      // }
-      // mask = rotate(mask,-128*8*gs);
       auto mask = mask_ct128x128_ct128x128[gs][bs];
 
       PhantomCiphertext rot;
@@ -551,9 +510,6 @@ void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, Phantom
 
   vector<PhantomCiphertext> diagBS(8);
   ckks->evaluator.rotate_batched_vector_inplace(diag, baby_steps, *(ckks->galois_keys), diagBS);
-  // for (int bs=0; bs<8; bs++) {
-  //   ckks->evaluator.rotate_vector(diag, 128*bs, *(ckks->galois_keys), diagBS[bs]);
-  // }
 
   std::vector<int> steps;
   std::vector<PhantomCiphertext> rotcts;
@@ -572,36 +528,12 @@ void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, Phantom
   for (int gs=0; gs<16; gs++) {
     PhantomCiphertext sumbs;
     for (int bs=0; bs<8; bs++) {
-      // int i = bs + 8*gs;
-      // vector<double> maskL(slot_count, 1.0);
-      // vector<double> maskR(slot_count, 1.0);
-      // for (int y = 0; y < slot_count / 128; ++y) {
-      //   for (int x = 0; x < 128; ++x) {
-      //       int idx = 127 - x;
-      //       if (x < i) {
-      //           maskL[128 * y + idx] = 0;
-      //       } else {
-      //           maskR[128 * y + idx] = 0;
-      //       }
-      //       if (y < 128 && idx >= 64) {
-      //           maskL[128 * y + idx] = 0;
-      //           maskR[128 * y + idx] = 0;
-      //       } else if (y >= 128 && idx < 64) {
-      //           maskL[128 * y + idx] = 0;
-      //           maskR[128 * y + idx] = 0;
-      //       }
-      //   }
-      // }
-      // maskL = rotate(maskL,-128*8*gs);
-      // maskR = rotate(maskR,-128*8*gs);
       auto maskL = maskL_ct128x128_ct128x128[gs][bs];
       auto maskR = maskR_ct128x128_ct128x128[gs][bs];
 
       PhantomCiphertext rotL, rotR, diagL, diagR, vec;
       PhantomPlaintext pt;
 
-      // ckks->evaluator.rotate_vector(ct1, bs-127*8*gs, *(ckks->galois_keys), rotL);
-      // ckks->evaluator.rotate_vector(ct1, -128+bs-127*8*gs, *(ckks->galois_keys), rotR);
       rotL = rotcts[gs*8+bs];
       rotR = rotcts[16*8+gs*8+bs];
 
