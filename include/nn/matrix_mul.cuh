@@ -2,7 +2,7 @@
 
 #include <fstream>
 #include <iostream>
-#include <vector>
+// #include <vector>
 
 #include "ckks_evaluator.cuh"
 #include "nn/row_pack.h"

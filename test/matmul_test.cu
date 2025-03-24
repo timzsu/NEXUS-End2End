@@ -2,7 +2,6 @@
 #include "nn/nexus_utility.cuh"
 #include "nn/row_pack.h"
 #include "nn/params.cuh"
-#include "torch/cuda.h"
 
 #include <precompiled/catch2_includes.h>
 #include <precompiled/torch_includes.h>

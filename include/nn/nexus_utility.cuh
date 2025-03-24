@@ -2,11 +2,9 @@
 
 #include "Bootstrapper.cuh"
 #include "ckks_evaluator.cuh"
-#include <cuComplex.h>
 #include <precompiled/torch_includes.h>
 #include "nn/constant.cuh"
 #include "nn/row_pack.h"
-#include <unistd.h>
 #include <sys/resource.h>
 
 namespace nexus {

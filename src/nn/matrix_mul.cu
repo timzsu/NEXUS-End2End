@@ -1,15 +1,4 @@
-#include <algorithm>
-#include <chrono>
-#include <cstddef>
-#include <cuda_runtime.h>
-#include <cuda_runtime_api.h>
-#include <driver_types.h>
-#include <vector>
-
-#include "ciphertext.h"
 #include "nn/matrix_mul.cuh"
-#include "nn/row_pack.h"
-#include "nn/nexus_utility.cuh"
 #include "nn/constant.cuh"
 #include "utils.cuh"
 
@@ -345,7 +334,6 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, FlatVec&
   auto slice = make_cuda_auto_ptr<cuDoubleComplex>(slot_count, stream);
   cudaFreeAsync(slice.get(), stream);
   cudaMemcpyAsync(d_pt.get(), pt.data(), slot_count * sizeof(cuDoubleComplex), cudaMemcpyHostToDevice, stream);
-  // cudaStreamSynchronize(stream);
   kernel_pt_encoding_128x128<<<128, 128, 0, stream>>>(d_pt.get(), tmp.get(), out_buf.get());
   cudaStreamSynchronize(stream);
 
@@ -359,10 +347,8 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, FlatVec&
   for (int gs=-128; gs<128; gs+=16) {
     for (int bs=0; bs<16; bs++) {
       slice.set(out_buf.get() + (bs+gs+128)*slot_count);
-      // cudaMemcpy(slice.get(), out_buf.get() + (bs+gs+128)*slot_count, slot_count * sizeof(cuDoubleComplex), cudaMemcpyDeviceToDevice);
       ckks->encoder.encode(slice, babysteps[bs].chain_index(), ckks->scale, tmppt);
       slice.set(nullptr);
-      // ckks->evaluator.mod_switch_to_inplace(tmppt, babysteps[bs].chain_index());
       ckks->evaluator.multiply_plain(babysteps[bs], tmppt, tmpct);
       if (bs == 0)
         bsSum = tmpct;
