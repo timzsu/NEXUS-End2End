@@ -6,6 +6,8 @@
 #include <precompiled/torch_includes.h>
 #include "nn/constant.cuh"
 #include "nn/row_pack.h"
+#include <unistd.h>
+#include <sys/resource.h>
 
 namespace nexus {
 
@@ -22,9 +24,9 @@ template <class T>
 inline PhantomPlaintext CKKSEncode(vector<T> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr, bool use_default_scale = false) {
     PhantomPlaintext pt;
     if (ref_ct) {
-        auto scale = use_default_scale ? ckks_evaluator->scale : ref_ct->scale();
-        ckks_evaluator->encoder.encode(data, scale, pt);
-        ckks_evaluator->evaluator.mod_switch_to_inplace(pt, ref_ct->chain_index());
+        double scale = use_default_scale ? ckks_evaluator->scale : ref_ct->scale();
+        size_t chain_idx = ref_ct->chain_index();
+        ckks_evaluator->encoder.encode(data, chain_idx, scale, pt);
     } else {
         ckks_evaluator->encoder.encode(data, ckks_evaluator->scale, pt);
     }
@@ -121,6 +123,13 @@ inline void mod_switch_to_same(PhantomCiphertext& x, PhantomCiphertext& y, std::
     } else if (x.coeff_modulus_size() < y.coeff_modulus_size()) {
         ckks_evaluator->evaluator.mod_switch_to_inplace(y, x.chain_index());
     }
+}
+
+inline double getMemoryStats() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    double rss = usage.ru_maxrss / 1e6;
+    return rss;
 }
 
 }  // namespace nexus
