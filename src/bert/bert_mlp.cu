@@ -14,9 +14,9 @@ void BertMLP::pack_weights() {
     assert_shape(b_down, hidden_dim);
 
     for (int i=0; i<expansion_factor; i++) {
-        W_up_packed[i] = pt_pack_2d<3, 6>(row_pack_768x768(W_up.slice(1, i*hidden_dim, (i+1)*hidden_dim)), ckks);
+        W_up_packed[i] = row_pack_768x768(W_up.slice(1, i*hidden_dim, (i+1)*hidden_dim));
         B_up_packed[i] = row_pack_768x1(b_up.slice(0, i*hidden_dim, (i+1)*hidden_dim));
-        W_down_packed[i] = pt_pack_2d<3, 6>(row_pack_768x768(W_down.slice(0, i*hidden_dim, (i+1)*hidden_dim)), ckks);
+        W_down_packed[i] = row_pack_768x768(W_down.slice(0, i*hidden_dim, (i+1)*hidden_dim));
     }
     B_down_packed = row_pack_768x1(b_down);
 }

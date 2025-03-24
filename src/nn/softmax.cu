@@ -53,14 +53,14 @@ void SoftmaxEvaluator::softmax_128x128(PhantomCiphertext &x, PhantomCiphertext &
   bootstrap(res, bootstrapper, true);
 
   // Normalize res/delta to [0, 1]
-  PhantomPlaintext delta = CKKSEncode(0.01, ckks, &res);
+  PhantomPlaintext delta = CKKSEncode(ckks->init_vec_with_value(0.01), ckks, &res);
   ckks->evaluator.multiply_plain_inplace(res, delta);
   ckks->evaluator.rescale_to_next_inplace(res);
 
   res = ckks->inverse(res); // Consumes 5 levels
 
   // Recover 1/res
-  delta = CKKSEncode(0.01, ckks, &res);
+  delta = CKKSEncode(ckks->init_vec_with_value(0.01), ckks, &res);
   ckks->evaluator.multiply_plain_inplace(res, delta);
   ckks->evaluator.rescale_to_next_inplace(res);
 

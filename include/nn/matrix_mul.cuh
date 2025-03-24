@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "ckks_evaluator.cuh"
-#include "nn/pt_pack.cuh"
+#include "nn/row_pack.h"
 
 namespace nexus {
 using namespace phantom;
@@ -20,6 +20,7 @@ class MMEvaluator {
   std::array<std::array<std::vector<double>, 8>, 16> mask_ct128x128_ct128x128;
   std::array<std::array<std::vector<double>, 8>, 16> maskL_ct128x128_ct128x128;
   std::array<std::array<std::vector<double>, 8>, 16> maskR_ct128x128_ct128x128;
+  
 
   void enc_compress_ciphertext(vector<double> &values, PhantomCiphertext &ct);
   vector<PhantomCiphertext> decompress_ciphertext(PhantomCiphertext &encrypted);
@@ -82,10 +83,10 @@ class MMEvaluator {
   @Syntax: ct = ct1 | ct2, pt = pt1 | pt2 -> ct1 * pt1 | ct2 * pt2
   @note: ct1, ct2, pt1, pt2 ∈ ℝ^{128x128}
   */
-  void matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, PackedPt& pt, PhantomCiphertext &res);
-  void matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, PackedPtArray<3>& pt, PhantomCiphertext &res);
-  void matrix_mul_ct128x768_pt768x64x2(vector<PhantomCiphertext>& ct, PackedPtArray<6>& pt, PhantomCiphertext &res);
-  void matrix_mul_ct128x768_pt768x768(vector<PhantomCiphertext>& ct, PackedPtMat<3, 6>& pt, vector<PhantomCiphertext> &res);
+  void matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, FlatVec& pt, PhantomCiphertext &res);
+  void matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, FlatVecArray& pt, PhantomCiphertext &res);
+  void matrix_mul_ct128x768_pt768x64x2(vector<PhantomCiphertext>& ct, FlatVecArray& pt, PhantomCiphertext &res);
+  void matrix_mul_ct128x768_pt768x768(vector<PhantomCiphertext>& ct, FlatVecMat& pt, vector<PhantomCiphertext> &res);
   void matrix_mul_ct128x64_ct128x64_transpose(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);
   void matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);
   void matrix_mul_ct128x64_ct128x64_transpose_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res);

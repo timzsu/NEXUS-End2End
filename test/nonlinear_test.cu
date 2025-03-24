@@ -215,7 +215,6 @@ TEST_CASE("Argmax") {
     PhantomPlaintext plain_input;
     PhantomCiphertext cipher_input;
     PhantomCiphertext cipher_output;
-    vector<double> input(slot_count, 0.0);
 
     int argmax_input_size = 8; // FIXME: Larger size will fail
     torch::Tensor input_tensor = torch::zeros({sparse_slots}, torch::kDouble);
@@ -223,7 +222,7 @@ TEST_CASE("Argmax") {
     torch::Tensor output_tensor = torch::zeros({sparse_slots}, torch::kDouble);
     output_tensor.index({torch::argmax(input_tensor)}) = 1.0;
 
-    input = vector_from_tensor(torch::tile(input_tensor, {2}));
+    auto input = vector_from_tensor<double>(torch::tile(input_tensor, {2}));
 
     // Initialize the bootstrapper
     // cout << "Generating Optimal Minimax Polynomials..." << endl;

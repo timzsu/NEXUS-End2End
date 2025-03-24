@@ -2,6 +2,7 @@
 
 #include "Bootstrapper.cuh"
 #include "ckks_evaluator.cuh"
+#include <cuComplex.h>
 #include <precompiled/torch_includes.h>
 #include "nn/constant.cuh"
 #include "nn/row_pack.h"
@@ -17,7 +18,8 @@ inline uint64_t level_from_chain_idx(uint64_t chain_idx) {
 }
 
 
-inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr, bool use_default_scale = false) {
+template <class T>
+inline PhantomPlaintext CKKSEncode(vector<T> data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr, bool use_default_scale = false) {
     PhantomPlaintext pt;
     if (ref_ct) {
         auto scale = use_default_scale ? ckks_evaluator->scale : ref_ct->scale();
@@ -29,11 +31,8 @@ inline PhantomPlaintext CKKSEncode(vector<double> data, shared_ptr<CKKSEvaluator
     return pt;
 }
 
-inline PhantomPlaintext CKKSEncode(double data, shared_ptr<CKKSEvaluator> ckks_evaluator, PhantomCiphertext* ref_ct = nullptr, bool use_default_scale = false) {
-    return CKKSEncode(ckks_evaluator->init_vec_with_value(data), ckks_evaluator, ref_ct, use_default_scale);
-}
-
-inline PhantomCiphertext CKKSEncrypt(vector<double> data, shared_ptr<CKKSEvaluator> ckks_evaluator, int chain_index=boot_level+1) {
+template <class T>
+inline PhantomCiphertext CKKSEncrypt(vector<T> data, shared_ptr<CKKSEvaluator> ckks_evaluator, int chain_index=boot_level+1) {
     PhantomCiphertext out;
     auto pt = CKKSEncode(data, ckks_evaluator);
     ckks_evaluator->encryptor.encrypt(pt, out);

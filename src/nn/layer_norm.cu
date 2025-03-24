@@ -68,7 +68,7 @@ void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vec
   ckks->evaluator.rotate_vector(sumy, slot_count / 2, *(ckks->galois_keys), rot_sumy);
   ckks->evaluator.add_inplace(sumy, rot_sumy);
 
-  PhantomPlaintext delta = CKKSEncode(1.0 / 768, ckks, &sumy, true);
+  PhantomPlaintext delta = CKKSEncode(ckks->init_vec_with_value(1.0 / 768), ckks, &sumy, true);
   ckks->evaluator.multiply_plain_inplace(sumy, delta);
   ckks->evaluator.rescale_to_next_inplace(sumy);
 

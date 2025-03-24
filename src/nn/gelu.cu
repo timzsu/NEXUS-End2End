@@ -68,7 +68,7 @@ void GELUEvaluator::gelu(PhantomCiphertext &x, PhantomCiphertext &res) {
   double A[] = {2.25775755e-04, 0.5, 3.96880960e-01, -6.37042698e-02, 8.38841647e-03, -7.17830961e-04, 3.49617829e-05, -7.26059653e-07};
   vector<PhantomPlaintext> coeff_A(8);
   for (size_t i = 0; i < coeff_A.size(); i++) {
-    coeff_A[i] = CKKSEncode(A[i], ckks);
+    coeff_A[i] = CKKSEncode(ckks->init_vec_with_value(A[i]), ckks);
   }
   vector<PhantomCiphertext> cts(8);
   cts[1] = x;

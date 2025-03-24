@@ -1,21 +1,34 @@
 #pragma once
 
+#include <cuComplex.h>
 #include <precompiled/torch_includes.h>
 
 namespace nexus {
 
-typedef std::vector<double> FlatVec;
+typedef std::vector<cuDoubleComplex> FlatVec;
 typedef std::vector<FlatVec> FlatVecArray;
 typedef std::vector<FlatVecArray> FlatVecMat;
 
 // Convert a torch::Tensor to a FlatVec (std::vector<double>)
-inline FlatVec vector_from_tensor(torch::Tensor t) {
+template<class T = cuDoubleComplex>
+inline std::vector<T> vector_from_tensor(torch::Tensor t) {
     TORCH_CHECK(t.dtype() == torch::kDouble);
     t = t.to(torch::kCPU).contiguous();
-    return FlatVec(t.const_data_ptr<double>(), t.const_data_ptr<double>() + t.numel());
+    std::vector<double> result(t.const_data_ptr<double>(), t.const_data_ptr<double>() + t.numel());
+    if constexpr (std::is_same<T, double>::value) {
+        return result;
+    } else if (std::is_same<T, cuDoubleComplex>::value) {
+        std::vector<cuDoubleComplex> result_complex(t.numel());
+        for (int i = 0; i < t.numel(); i++) {
+            result_complex[i] = make_cuDoubleComplex(result[i], 0);
+        }
+        return result_complex;
+    } else {
+        throw std::runtime_error("Unsupported type");
+    }
 }
 
-inline torch::Tensor tensor_from_vector(FlatVec vec, torch::IntArrayRef size) {
+inline torch::Tensor tensor_from_vector(std::vector<double> vec, torch::IntArrayRef size) {
     return torch::from_blob(vec.data(), size, torch::kDouble).clone();
 }
 

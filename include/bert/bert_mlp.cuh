@@ -21,7 +21,7 @@ private:
     torch::nn::Linear up_proj, down_proj;
     torch::nn::GELU gelu;
 
-    std::array<PackedPtMat<3, 6>, expansion_factor> W_up_packed, W_down_packed;
+    std::array<FlatVecMat, expansion_factor> W_up_packed, W_down_packed;
     std::array<FlatVecArray, expansion_factor> B_up_packed;
     FlatVecArray B_down_packed;
 

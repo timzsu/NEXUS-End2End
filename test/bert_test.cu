@@ -48,6 +48,8 @@ TEST_CASE("BERT Components") {
 
         torch::Tensor attn_output = tensor_from_ciphertexts(out, ckks_evaluator);
 
+        cout << (attn_output.to(torch::kFloat) - gt_output).abs().max() << endl;
+
         CHECK(torch::allclose(attn_output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
     }
     

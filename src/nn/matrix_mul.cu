@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
@@ -284,7 +285,69 @@ void MMEvaluator::matrix_mul(vector<vector<double>> &x, vector<vector<double>> &
 
 
 
-void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, PackedPt& pt, PhantomCiphertext &res) {
+__global__ void kernel_pt_encoding_128x128(cuDoubleComplex* pt, cuDoubleComplex* rot, cuDoubleComplex* out) {
+  // pt.len = 32768 = 2x128x128; out.len = 256x32768
+  // i=blockIdx.x, j/x=threadIdx.x
+  constexpr size_t slot_count = 32768;
+  int rot_offset = blockIdx.x * slot_count;
+
+  for (int y=0; y<slot_count/128; y++) {
+    int xx = (threadIdx.x + y - blockIdx.x + 128) % 128;
+    int yy = ((threadIdx.x+y)*128 + xx) % (128*128);
+    assert(xx >= 0);
+    if (y < 128)
+      rot[rot_offset+xx+128*y] = pt[yy];
+    else
+      rot[rot_offset+xx+128*y] = pt[128*128 + yy];
+  }
+
+  __syncthreads();
+
+  for (int y=0; y<slot_count/128; y++) {
+    int idx = 128*y + 127- threadIdx.x;
+    int rot_idx = rot_offset+idx;
+    int gs1 = blockIdx.x / 16 * 16;
+    int gs2 = gs1 - 128;
+    if(threadIdx.x < blockIdx.x) {
+      out[(blockIdx.x+128) * slot_count + (idx + gs1) % slot_count] = make_cuDoubleComplex(0.0, 0.0); // gs1
+      out[(blockIdx.x) * slot_count + (idx + gs2) % slot_count] = rot[rot_idx]; // gs2
+    } else {
+      out[(blockIdx.x+128) * slot_count + (idx + gs1) % slot_count] = rot[rot_idx];
+      out[(blockIdx.x) * slot_count + (idx + gs2) % slot_count] = make_cuDoubleComplex(0.0, 0.0);
+    }
+  }
+}
+
+inline std::vector<double> rotate(std::vector<double>& x, int steps) {
+  std::vector<double> out(x.size());
+  for (int i = 0; i < x.size(); i++) {
+    out[i] = x[(i+steps) % x.size()];
+  }
+  return out;
+}
+
+template<int size>
+inline std::array<double, size> rotate(std::array<double, size>& x, int steps) {
+  std::array<double, size> out;
+  for (int i = 0; i < size; i++) {
+    out[i] = x[(i+steps) % size];
+  }
+  return out;
+}
+
+void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, FlatVec& pt, PhantomCiphertext &res) {
+  const phantom::util::cuda_stream_wrapper &stream_wrapper = *phantom::util::global_variables::default_stream;
+  const auto &stream = stream_wrapper.get_stream();
+
+  auto d_pt = make_cuda_auto_ptr<cuDoubleComplex>(slot_count, stream);
+  auto tmp = make_cuda_auto_ptr<cuDoubleComplex>(128*slot_count, stream);
+  auto out_buf = make_cuda_auto_ptr<cuDoubleComplex>(256*slot_count, stream);
+  auto slice = make_cuda_auto_ptr<cuDoubleComplex>(slot_count, stream);
+  cudaFreeAsync(slice.get(), stream);
+  cudaMemcpyAsync(d_pt.get(), pt.data(), slot_count * sizeof(cuDoubleComplex), cudaMemcpyHostToDevice, stream);
+  // cudaStreamSynchronize(stream);
+  kernel_pt_encoding_128x128<<<128, 128, 0, stream>>>(d_pt.get(), tmp.get(), out_buf.get());
+  cudaStreamSynchronize(stream);
 
   vector<PhantomCiphertext> babysteps(16);
   std::vector<int> baby_steps(16);
@@ -295,7 +358,11 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, PackedPt
   PhantomPlaintext tmppt;
   for (int gs=-128; gs<128; gs+=16) {
     for (int bs=0; bs<16; bs++) {
-      ckks->encoder.encode(pt[bs+gs+128], babysteps[bs].chain_index(), ckks->scale, tmppt);
+      slice.set(out_buf.get() + (bs+gs+128)*slot_count);
+      // cudaMemcpy(slice.get(), out_buf.get() + (bs+gs+128)*slot_count, slot_count * sizeof(cuDoubleComplex), cudaMemcpyDeviceToDevice);
+      ckks->encoder.encode(slice, babysteps[bs].chain_index(), ckks->scale, tmppt);
+      slice.set(nullptr);
+      // ckks->evaluator.mod_switch_to_inplace(tmppt, babysteps[bs].chain_index());
       ckks->evaluator.multiply_plain(babysteps[bs], tmppt, tmpct);
       if (bs == 0)
         bsSum = tmpct;
@@ -311,7 +378,7 @@ void MMEvaluator::matrix_mul_ct128x128_pt128x128(PhantomCiphertext& ct, PackedPt
   ckks->evaluator.rescale_to_next_inplace(res);
 }
 
-void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, PackedPtArray<3>& pt, PhantomCiphertext &res) {
+void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, FlatVecArray& pt, PhantomCiphertext &res) {
   PhantomCiphertext product, rotProduct;
   for (int i=0; i<3; i++) {
     matrix_mul_ct128x128_pt128x128(ct[i], pt[i], product);
@@ -324,7 +391,7 @@ void MMEvaluator::matrix_mul_ct128x768_pt768x128(vector<PhantomCiphertext>& ct, 
   }
 }
 
-void MMEvaluator::matrix_mul_ct128x768_pt768x64x2(vector<PhantomCiphertext>& ct, PackedPtArray<6>& pt, PhantomCiphertext &res) {
+void MMEvaluator::matrix_mul_ct128x768_pt768x64x2(vector<PhantomCiphertext>& ct, FlatVecArray& pt, PhantomCiphertext &res) {
   vector<PhantomCiphertext> buf0(3), buf1(3);
   for (int i=0; i<3; i++) {
     matrix_mul_ct128x128_pt128x128(ct[i],pt[i], buf0[i]);
@@ -337,7 +404,7 @@ void MMEvaluator::matrix_mul_ct128x768_pt768x64x2(vector<PhantomCiphertext>& ct,
   ckks->evaluator.add(result0, result1, res);
 }
 
-void MMEvaluator::matrix_mul_ct128x768_pt768x768(vector<PhantomCiphertext>& ct, PackedPtMat<3, 6>& pt, vector<PhantomCiphertext> &res) {
+void MMEvaluator::matrix_mul_ct128x768_pt768x768(vector<PhantomCiphertext>& ct, FlatVecMat& pt, vector<PhantomCiphertext> &res) {
   res.resize(3);
   for (int i=0; i<3; i++) {
     matrix_mul_ct128x768_pt768x64x2(ct, pt[i], res[i]);
@@ -562,32 +629,4 @@ void MMEvaluator::matrix_mul_ct128x128_ct128x128(PhantomCiphertext& ct1, Phantom
       ckks->evaluator.add_inplace(res, sumbs);
     }
   }
-}
-
-void MMEvaluator::matrix_mul_ct128x64_ct128x64_transpose_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
-  auto matrix1 = tensor_from_vector(CKKSDecrypt(ct1, ckks), {2, 128, 128});
-  auto matrix2 = tensor_from_vector(CKKSDecrypt(ct2, ckks), {2, 128, 128});
-  auto mm_res1 = torch::mm(matrix1.index({0}), matrix2.index({0}).transpose(0, 1));
-  auto mm_res2 = torch::mm(matrix1.index({1}), matrix2.index({1}).transpose(0, 1));
-  for (int i = 0; i < 128; ++i) {
-    mm_res1[i] = torch::roll(mm_res1[i], -i, 0);
-    mm_res2[i] = torch::roll(mm_res2[i], -i, 0);
-  }
-  res = CKKSEncrypt(flatten_pack(mm_res1, mm_res2), ckks);
-  ckks->evaluator.mod_switch_to_inplace(res, ct1.chain_index() + 1);
-}
-
-void MMEvaluator::matrix_mul_ct128x128_ct128x128_gt(PhantomCiphertext& ct1, PhantomCiphertext& ct2, PhantomCiphertext &res) {
-  auto matrix1 = tensor_from_vector(CKKSDecrypt(ct1, ckks), {2, 128, 128});
-  auto matrix2 = tensor_from_vector(CKKSDecrypt(ct2, ckks), {2, 128, 128});
-  for (int i = 0; i < 128; ++i) {
-    matrix1[0][i] = torch::roll(matrix1[0][i], i, 0);
-    matrix1[1][i] = torch::roll(matrix1[1][i], i, 0);
-  }
-  auto mm_res1 = torch::mm(matrix1[0], matrix2[0].slice(1, 0, 64));
-  auto mm_res2 = torch::mm(matrix1[1], matrix2[0].slice(1, 64, 128));
-  res = CKKSEncrypt(flatten_pack(
-    torch::cat({mm_res1, torch::zeros_like(mm_res1)}, 1), 
-    torch::cat({torch::zeros_like(mm_res2), mm_res2}, 1)), ckks);
-  ckks->evaluator.mod_switch_to_inplace(res, ct1.chain_index() + 1);
 }

@@ -20,10 +20,10 @@ private:
 
     torch::nn::Linear q_proj, k_proj, v_proj, o_proj;
 
-    PackedPtMat<num_heads/2, 6> Wq_packed, Wk_packed;
-    PackedPtMat<num_heads/2, 3> Wv_packed;
+    FlatVecMat Wq_packed, Wk_packed;
+    FlatVecMat Wv_packed;
     std::array<FlatVec, num_heads/2> Bq_packed, Bk_packed, Bv_packed;
-    PackedPtMat<3, 6> Wo_packed;
+    FlatVecMat Wo_packed;
     FlatVecArray Bo_packed;
 
     long qkv_proj_time=0, qk_time=0, softmax_time=0, qkv_time=0;
