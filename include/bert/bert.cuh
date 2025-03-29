@@ -34,4 +34,41 @@ public:
     }
 };
 
+class BertEncoder : torch::nn::Module {
+private:
+    std::vector<BertLayer> layers;
+
+public: 
+    BertEncoder(int num_hidden_layers, std::shared_ptr<CKKSEvaluator> ckks, std::shared_ptr<Bootstrapper> bootstrapper) {
+        layers.clear();
+        layers.resize(num_hidden_layers, BertLayer(ckks, bootstrapper));
+    }
+    
+    void pack_weights() {
+        for (auto& layer : layers) {
+            layer.pack_weights();
+        }
+    }
+
+    std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext> x, FlatVec attention_mask) {
+        for (auto& layer : layers) {
+            x = layer.forward(x, attention_mask);
+        }
+        return x;
+    }
+
+    torch::Tensor forward(torch::Tensor x, torch::Tensor attention_mask) {
+        for (auto& layer : layers) {
+            x = layer.forward(x, attention_mask);
+        }
+        return x;
+    }
+    
+    void print_time() {
+        for (auto& layer : layers) {
+            layer.print_time();
+        }
+    }
+};
+
 }

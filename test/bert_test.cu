@@ -48,6 +48,14 @@ TEST_CASE("BERT Components") {
 
         torch::Tensor attn_output = tensor_from_ciphertexts(out, ckks_evaluator);
 
+        cout << std::format(
+            "gt_output's value ranges from {:.4f} to {:.4f}, with average abs value {:.4f}. The maximum absolute difference is {:.4f}. ", 
+            gt_output.min().item<double>(), 
+            gt_output.max().item<double>(), 
+            gt_output.abs().mean().item<double>(), 
+            (attn_output - gt_output).abs().max().item<double>()
+        ) << endl;
+
         cout << (attn_output.to(torch::kFloat) - gt_output).abs().max() << endl;
 
         CHECK(torch::allclose(attn_output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
@@ -78,6 +86,14 @@ TEST_CASE("BERT Components") {
 
         torch::Tensor output = tensor_from_ciphertexts(out, ckks_evaluator);
 
+        cout << std::format(
+            "gt_output's value ranges from {:.4f} to {:.4f}, with average abs value {:.4f}. The maximum absolute difference is {:.4f}. ", 
+            gt_output.min().item<double>(), 
+            gt_output.max().item<double>(), 
+            gt_output.abs().mean().item<double>(), 
+            (output - gt_output).abs().max().item<double>()
+        ) << endl;
+
         CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
     }
 }
@@ -88,11 +104,59 @@ TEST_CASE("BERT Layer") {
 
     BertLayer bert_layer(ckks_evaluator, bootstrapper);
 
+    SECTION("Faithful Execution") {
+        torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
+        torch::Tensor attention_mask = torch::ones({128, 128}, torch::kBool);
+        // attention_mask.slice(1, 126) = 0;
+        auto mask = convert_mask(attention_mask);
+        auto gt_output = bert_layer.forward(input.to(torch::kFloat), attention_mask);
+
+        auto packed_input = row_pack_128x768(input);
+        std::vector<PhantomCiphertext> input_ct;
+        for (auto &inp : packed_input) {
+            input_ct.push_back(CKKSEncrypt(inp, ckks_evaluator));
+        }
+
+        bert_layer.pack_weights();
+
+        torch::cuda::synchronize();
+        BENCHMARK("forward") {
+            std::vector<PhantomCiphertext> res, input_copy = input_ct;
+            auto out = bert_layer.forward(input_ct, mask);
+            torch::cuda::synchronize();
+        };
+        Timer timer;
+        auto out = bert_layer.forward(input_ct, mask);
+        torch::cuda::synchronize();
+        timer.stop("End to end run time (ms): ");
+        bert_layer.print_time();
+
+        torch::Tensor output = tensor_from_ciphertexts(out, ckks_evaluator);
+
+        cout << std::format(
+            "gt_output's value ranges from {:.4f} to {:.4f}, with average abs value {:.4f}. The maximum absolute difference is {:.4f}. ", 
+            gt_output.min().item<double>(), 
+            gt_output.max().item<double>(), 
+            gt_output.abs().mean().item<double>(), 
+            (output - gt_output).abs().max().item<double>()
+        ) << endl;
+        
+        CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
+    }
+}
+
+
+TEST_CASE("BERT Encoder") {
+
+    auto [ckks_evaluator, bootstrapper] = setup<true>();
+
+    BertEncoder bert_encoder(12, ckks_evaluator, bootstrapper);
+
     torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
     torch::Tensor attention_mask = torch::ones({128, 128}, torch::kBool);
-    attention_mask.slice(1, 126) = 0;
+    // attention_mask.slice(1, 126) = 0;
     auto mask = convert_mask(attention_mask);
-    auto gt_output = bert_layer.forward(input.to(torch::kFloat), attention_mask);
+    auto gt_output = bert_encoder.forward(input.to(torch::kFloat), attention_mask);
 
     auto packed_input = row_pack_128x768(input);
     std::vector<PhantomCiphertext> input_ct;
@@ -100,22 +164,29 @@ TEST_CASE("BERT Layer") {
         input_ct.push_back(CKKSEncrypt(inp, ckks_evaluator));
     }
 
-    bert_layer.pack_weights();
+    bert_encoder.pack_weights();
 
     torch::cuda::synchronize();
     BENCHMARK("forward") {
         std::vector<PhantomCiphertext> res, input_copy = input_ct;
-        auto out = bert_layer.forward(input_ct, mask);
+        auto out = bert_encoder.forward(input_ct, mask);
         torch::cuda::synchronize();
     };
     Timer timer;
-    auto out = bert_layer.forward(input_ct, mask);
+    auto out = bert_encoder.forward(input_ct, mask);
     torch::cuda::synchronize();
     timer.stop("End to end run time (ms): ");
-    bert_layer.print_time();
+    bert_encoder.print_time();
 
     torch::Tensor output = tensor_from_ciphertexts(out, ckks_evaluator);
 
-    cout << (output - gt_output).abs().max() << endl;
+    cout << std::format(
+        "gt_output's value ranges from {:.4f} to {:.4f}, with average abs value {:.4f}. The maximum absolute difference is {:.4f}. ", 
+        gt_output.min().item<double>(), 
+        gt_output.max().item<double>(), 
+        gt_output.abs().mean().item<double>(), 
+        (output - gt_output).abs().max().item<double>()
+    ) << endl;
+    
     CHECK(torch::allclose(output.to(torch::kFloat), gt_output, MAX_RTOL, MAX_ATOL));
 }
