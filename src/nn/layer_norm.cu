@@ -36,7 +36,9 @@ void LNEvaluator::layer_norm(PhantomCiphertext &a, PhantomCiphertext &y, int len
   // cout << "Moduli left after LayerNorm: " << y.coeff_modulus_size() << endl;
 }
 
-void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vector<PhantomCiphertext> &res) {
+void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vector<PhantomCiphertext> &res, const FlatVecArray& weight, const FlatVecArray& bias) {
+  TORCH_CHECK_EQ(weight[0].size(), slot_count); // sqrt(n) * gamma
+  TORCH_CHECK_EQ(bias[0].size(), slot_count); // beta
   std::vector<PhantomCiphertext> tmp(3), z(3), y(3);
   res.resize(3);
 
@@ -77,10 +79,15 @@ void LNEvaluator::layer_norm_128x768(std::vector<PhantomCiphertext> &x, std::vec
 
   for (int i=0; i<3; i++) {
     PhantomCiphertext a = z[i];
+    auto weight_pt = CKKSEncode(weight[i], ckks, &a);
+    ckks->evaluator.multiply_plain_inplace(a, weight_pt);
+    ckks->evaluator.rescale_to_next_inplace(a);
     mod_switch_to_same(a, inv_sqrt, ckks);
     ckks->evaluator.multiply(inv_sqrt, a, res[i]);
     ckks->evaluator.relinearize_inplace(res[i], *ckks->relin_keys);
     ckks->evaluator.rescale_to_next_inplace(res[i]);
+    auto bias_pt = CKKSEncode(bias[i], ckks, &res[i]);
+    ckks->evaluator.add_plain_inplace(res[i], bias_pt);
   }
   // std::cout << "Moduli left after layernorm: " << res[0].coeff_modulus_size() << std::endl;
 }

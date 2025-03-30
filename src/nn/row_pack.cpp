@@ -116,4 +116,30 @@ FlatVec convert_mask(torch::Tensor mask) {
     return attention_mask;
 }
 
+std::pair<FlatVecArray, FlatVecArray> row_pack_layer_norm(torch::Tensor weight, torch::Tensor bias) {
+    TORCH_CHECK_EQ(weight.dtype(), torch::kDouble);
+    TORCH_CHECK_EQ(bias.dtype(), torch::kDouble);
+    TORCH_CHECK_EQ(weight.size(0), 768);
+    TORCH_CHECK_EQ(bias.size(0), 768);
+
+    auto weight_slice = torch::split(weight, 128, 0);
+    auto bias_slice = torch::split(bias, 128, 0);
+    
+    FlatVecArray weight_vec(3), bias_vec(3);
+
+    for (int m = 0; m < 3; m++) {
+        weight_vec[m] = vector_from_tensor(
+            torch::concat({
+                torch::tile(weight_slice[2*m].unsqueeze(0), {128, 1}),
+                torch::tile(weight_slice[2*m+1].unsqueeze(0), {128, 1})})
+        );
+        bias_vec[m] = vector_from_tensor(
+            torch::concat({
+                torch::tile(bias_slice[2*m].unsqueeze(0), {128, 1}),
+                torch::tile(bias_slice[2*m+1].unsqueeze(0), {128, 1})})
+        );
+    }
+    return {weight_vec, bias_vec};
+}
+
 } // namespace nexus

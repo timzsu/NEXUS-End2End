@@ -130,11 +130,17 @@ TEST_CASE("Non-linear Operations") {
     }
 
     SECTION("Layer Norm 128x768") {
-        LNEvaluator ln_evaluator(ckks_evaluator, bootstrapper);
+        LayerNorm layer_norm(ckks_evaluator, bootstrapper);
+        
+        std::ifstream file("/cephfs/suzhengyuan/secure_quantization/tanmay/quad_2quad_COLA/state_dict.pt", std::ios::binary);
+        std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        auto state_dict = torch::pickle_load(data).toGenericDict();
+        layer_norm.load_state_dict(state_dict, "bert.encoder.layer.0.attention.output.LayerNorm");
+        layer_norm.pack_weights();
 
-        torch::Tensor matrix_A = random_tensor({128, 768}, -3, 3);
-        torch::Tensor matrix_res = torch::layer_norm(matrix_A, 768);
-        auto packed_A = row_pack_128x768(matrix_A);
+        torch::Tensor matrix_A = random_tensor({128, 768}, -3, 3).to(torch::kFloat);
+        torch::Tensor matrix_res = layer_norm.forward(matrix_A);
+        auto packed_A = row_pack_128x768(matrix_A.to(torch::kDouble));
         vector<PhantomCiphertext> ct_matrix{
             CKKSEncrypt(packed_A[0], ckks_evaluator, chain_idx(6)),
             CKKSEncrypt(packed_A[1], ckks_evaluator, chain_idx(6)),
@@ -143,15 +149,13 @@ TEST_CASE("Non-linear Operations") {
 
         torch::cuda::synchronize();
         BENCHMARK("layer_norm") {
-            std::vector<PhantomCiphertext> res;
-            ln_evaluator.layer_norm_128x768(ct_matrix, res);
+            layer_norm.forward(ct_matrix);
             torch::cuda::synchronize();
         };
-        std::vector<PhantomCiphertext> res;
-        ln_evaluator.layer_norm_128x768(ct_matrix, res);
-        CHECK(res[0].chain_index() == ct_matrix[0].chain_index() + 16);
+        std::vector<PhantomCiphertext> res = layer_norm.forward(ct_matrix);
+        CHECK(res[0].chain_index() == ct_matrix[0].chain_index() + 5);
 
-        torch::Tensor output = tensor_from_ciphertexts(res, ckks_evaluator);
+        torch::Tensor output = tensor_from_ciphertexts(res, ckks_evaluator).to(torch::kFloat);
         
         cout << std::format(
             "gt_output's value ranges from {:.4f} to {:.4f}, with average abs value {:.4f}. The maximum absolute difference is {:.4f}. ", 
