@@ -12,15 +12,16 @@ class BertLayer : torch::nn::Module {
 private:
     BertAttention self_attention;
     BertMLP mlp;
-    LNEvaluator ln_evaluator;
+    LayerNorm ln1, ln2;
     std::shared_ptr<CKKSEvaluator> ckks;
     std::shared_ptr<Bootstrapper> bootstrapper;
 
     Timer layer_norm1_timer, layer_norm2_timer;
 
 public:
-    BertLayer(std::shared_ptr<CKKSEvaluator> ckks, std::shared_ptr<Bootstrapper> bootstrapper): self_attention(ckks, bootstrapper), mlp(ckks, bootstrapper), ln_evaluator(ckks, bootstrapper), ckks(ckks), bootstrapper(bootstrapper) {}
+    BertLayer(std::shared_ptr<CKKSEvaluator> ckks, std::shared_ptr<Bootstrapper> bootstrapper): self_attention(ckks, bootstrapper), mlp(ckks, bootstrapper), ln1(ckks, bootstrapper), ln2(ckks, bootstrapper), ckks(ckks), bootstrapper(bootstrapper) {}
 
+    void load_state_dict(torch::Dict<torch::IValue, torch::IValue>& state_dict, std::string prefix="");
     void pack_weights();
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x, FlatVec attention_mask);

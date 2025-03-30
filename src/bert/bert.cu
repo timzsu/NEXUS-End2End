@@ -3,9 +3,18 @@
 
 namespace nexus {
 
+void BertLayer::load_state_dict(torch::Dict<torch::IValue, torch::IValue>& state_dict, std::string prefix) {
+    self_attention.load_state_dict(state_dict, prefix + ".attention");
+    ln1.load_state_dict(state_dict, prefix + ".attention.output.LayerNorm");
+    mlp.load_state_dict(state_dict, prefix);
+    ln2.load_state_dict(state_dict, prefix + ".output.LayerNorm");
+}
+
 void BertLayer::pack_weights() {
     self_attention.pack_weights();
+    ln1.pack_weights();
     mlp.pack_weights();
+    ln2.pack_weights();
 }
 
 std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x, FlatVec attention_mask) {
@@ -18,8 +27,7 @@ std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x, 
     bootstrap(attn_output, bootstrapper);
     for (auto& ct: attn_output)
       ckks->evaluator.mod_switch_to_inplace(ct, chain_idx(6));
-    std::vector<PhantomCiphertext> attn_output_normalized;
-    ln_evaluator.layer_norm_128x768(attn_output, attn_output_normalized);
+    auto attn_output_normalized = ln1.forward(attn_output);
     bootstrap(attn_output_normalized, bootstrapper);
     for (auto& ct: attn_output_normalized) {
       ckks->evaluator.mod_switch_to_inplace(ct, chain_idx(14));
@@ -33,8 +41,7 @@ std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x, 
     std::cout << "MLP Finished" << std::endl;
 
     layer_norm2_timer.start();
-    std::vector<PhantomCiphertext> mlp_output_normalized;
-    ln_evaluator.layer_norm_128x768(mlp_output, mlp_output_normalized);
+    auto mlp_output_normalized = ln2.forward(mlp_output);
     bootstrap(mlp_output_normalized, bootstrapper);
     torch::cuda::synchronize();
     layer_norm2_timer.stop();
@@ -45,9 +52,9 @@ std::vector<PhantomCiphertext> BertLayer::forward(vector<PhantomCiphertext>& x, 
 
 torch::Tensor BertLayer::forward(torch::Tensor x, torch::Tensor attention_mask) {
   auto attn_output = self_attention.forward(x, attention_mask);
-  attn_output = torch::layer_norm(attn_output, 768);
+  attn_output = ln1.forward(attn_output);
   auto mlp_output = mlp.forward(attn_output);
-  mlp_output = torch::layer_norm(mlp_output, 768);
+  mlp_output = ln2.forward(mlp_output);
   return mlp_output;
 }
 

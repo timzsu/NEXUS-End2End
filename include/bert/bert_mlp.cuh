@@ -8,7 +8,7 @@
 
 namespace nexus {
 
-class BertMLP: torch::nn::Module {
+class BertMLP: public torch::nn::Module {
 private:
     MMEvaluator mm_evaluator;
     GELUEvaluator gelu_evaluator;
@@ -35,6 +35,7 @@ public:
             torch::nn::init::uniform_(down_proj->weight, -1, 1);
         }
 
+    void load_state_dict(torch::Dict<torch::IValue, torch::IValue>& state_dict, std::string prefix="");
     void pack_weights();
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x);

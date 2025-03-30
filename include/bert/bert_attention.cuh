@@ -7,7 +7,7 @@
 
 namespace nexus {
 
-class BertAttention: torch::nn::Module {
+class BertAttention: public torch::nn::Module {
 private:
     MMEvaluator mm_evaluator;
     SoftmaxEvaluator softmax_evaluator;
@@ -38,6 +38,7 @@ public:
         torch::nn::init::uniform_(o_proj->weight, -5, 5);
     }
 
+    void load_state_dict(torch::Dict<torch::IValue, torch::IValue>& state_dict, std::string prefix="");
     void pack_weights();
 
     std::vector<PhantomCiphertext> forward(vector<PhantomCiphertext>& x, FlatVec attention_mask);

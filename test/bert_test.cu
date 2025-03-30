@@ -20,8 +20,13 @@ torch::Tensor random_tensor(torch::IntArrayRef size, double min, double max) {
 TEST_CASE("BERT Components") {
     auto [ckks_evaluator, bootstrapper] = setup<1>();
 
+    std::ifstream file("/cephfs/suzhengyuan/secure_quantization/tanmay/quad_2quad_COLA/state_dict.pt", std::ios::binary);
+    std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    auto state_dict = torch::pickle_load(data).toGenericDict();
+
     SECTION("Attention") {
         BertAttention attention(ckks_evaluator, bootstrapper);
+        attention.load_state_dict(state_dict, "bert.encoder.layer.0.attention");
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
         torch::Tensor attention_mask = torch::ones({128, 128}, torch::kBool);
@@ -63,6 +68,7 @@ TEST_CASE("BERT Components") {
     
     SECTION("MLP") {
         BertMLP mlp(ckks_evaluator, bootstrapper);
+        mlp.load_state_dict(state_dict, "bert.encoder.layer.0");
 
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
         torch::Tensor gt_output = mlp.forward(input.to(torch::kFloat));
@@ -102,7 +108,13 @@ TEST_CASE("BERT Layer") {
 
     auto [ckks_evaluator, bootstrapper] = setup<true>();
 
+    std::ifstream file("/cephfs/suzhengyuan/secure_quantization/tanmay/quad_2quad_COLA/state_dict.pt", std::ios::binary);
+    std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    auto state_dict = torch::pickle_load(data).toGenericDict();
+
     BertLayer bert_layer(ckks_evaluator, bootstrapper);
+    bert_layer.load_state_dict(state_dict, "bert.encoder.layer.0");
+    bert_layer.pack_weights();
 
     SECTION("Faithful Execution") {
         torch::Tensor input = random_tensor({128, 768}, -0.5, 0.5);
@@ -116,8 +128,6 @@ TEST_CASE("BERT Layer") {
         for (auto &inp : packed_input) {
             input_ct.push_back(CKKSEncrypt(inp, ckks_evaluator));
         }
-
-        bert_layer.pack_weights();
 
         torch::cuda::synchronize();
         BENCHMARK("forward") {

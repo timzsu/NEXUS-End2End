@@ -5,6 +5,37 @@
 
 namespace nexus {
 
+void BertAttention::load_state_dict(torch::Dict<torch::IValue, torch::IValue>& state_dict, std::string prefix) {
+    auto q_proj_key = prefix + ".self.query.weight";
+    auto k_proj_key = prefix + ".self.key.weight";
+    auto v_proj_key = prefix + ".self.value.weight";
+    auto o_proj_key = prefix + ".output.dense.weight";
+
+    auto q_proj_bias_key = prefix + ".self.query.bias";
+    auto k_proj_bias_key = prefix + ".self.key.bias";
+    auto v_proj_bias_key = prefix + ".self.value.bias";
+    auto o_proj_bias_key = prefix + ".output.dense.bias";
+
+    q_proj->weight.requires_grad_(false);
+    k_proj->weight.requires_grad_(false);
+    v_proj->weight.requires_grad_(false);
+    o_proj->weight.requires_grad_(false);
+    q_proj->bias.requires_grad_(false);
+    k_proj->bias.requires_grad_(false);
+    v_proj->bias.requires_grad_(false);
+    o_proj->bias.requires_grad_(false);
+
+    q_proj->weight.copy_(state_dict.at(q_proj_key).toTensor());
+    k_proj->weight.copy_(state_dict.at(k_proj_key).toTensor());
+    v_proj->weight.copy_(state_dict.at(v_proj_key).toTensor());
+    o_proj->weight.copy_(state_dict.at(o_proj_key).toTensor());
+
+    q_proj->bias.copy_(state_dict.at(q_proj_bias_key).toTensor());
+    k_proj->bias.copy_(state_dict.at(k_proj_bias_key).toTensor());
+    v_proj->bias.copy_(state_dict.at(v_proj_bias_key).toTensor());
+    o_proj->bias.copy_(state_dict.at(o_proj_bias_key).toTensor());
+}
+
 void BertAttention::pack_weights() {
 
     torch::Tensor Wq = q_proj->weight.transpose(0, 1).to(torch::kDouble);

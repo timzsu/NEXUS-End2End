@@ -3,6 +3,23 @@
 
 namespace nexus {
 
+void BertMLP::load_state_dict(torch::Dict<torch::IValue, torch::IValue>& state_dict, std::string prefix) {
+    auto up_proj_key = prefix + ".intermediate.dense.weight";
+    auto down_proj_key = prefix + ".output.dense.weight";
+    auto up_proj_bias_key = prefix + ".intermediate.dense.bias";
+    auto down_proj_bias_key = prefix + ".output.dense.bias";
+
+    up_proj->weight.requires_grad_(false);
+    down_proj->weight.requires_grad_(false);
+    up_proj->bias.requires_grad_(false);
+    down_proj->bias.requires_grad_(false);
+
+    up_proj->weight.copy_(state_dict.at(up_proj_key).toTensor());
+    down_proj->weight.copy_(state_dict.at(down_proj_key).toTensor());
+    up_proj->bias.copy_(state_dict.at(up_proj_bias_key).toTensor());
+    down_proj->bias.copy_(state_dict.at(down_proj_bias_key).toTensor());
+}
+
 void BertMLP::pack_weights() {
     torch::Tensor W_up = up_proj->weight.transpose(0, 1).to(torch::kDouble);
     torch::Tensor W_down = down_proj->weight.transpose(0, 1).to(torch::kDouble);
